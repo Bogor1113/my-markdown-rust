@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MyMdEdit 产品诊断与优化路线图 v1.0.74</title>
+<style>
+  :root{
+    --bg:#0f1115;
+    --bg-soft:#15171d;
+    --card:#1a1d24;
+    --card-2:#20242c;
+    --border:#2a2f39;
+    --text:#e8eaf0;
+    --text-2:#a9b0be;
+    --text-3:#767e8d;
+    --accent:#5b9dff;
+    --accent-2:#a78bfa;
+    --p0:#ff6b6b;
+    --p1:#ffa94d;
+    --p2:#ffd43b;
+    --p3:#63b3ed;
+    --ok:#51cf66;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;
+    background:
+      radial-gradient(1100px 600px at 12% -8%, rgba(91,157,255,.10), transparent 60%),
+      radial-gradient(900px 500px at 92% 4%, rgba(167,139,250,.10), transparent 62%),
+      var(--bg);
+    color:var(--text);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei","Hiragino Sans GB",system-ui,-apple-system,sans-serif;
+    line-height:1.72;
+    font-size:15px;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:48px 28px 96px}
+
+  /* ---------- header ---------- */
+  .hero{
+    border:1px solid var(--border);
+    background:linear-gradient(140deg,rgba(91,157,255,.12),rgba(167,139,250,.07) 46%,transparent 78%),var(--bg-soft);
+    border-radius:18px;
+    padding:34px 34px 28px;
+    position:relative;
+    overflow:hidden;
+  }
+  .hero::after{
+    content:"";position:absolute;inset:auto -60px -120px auto;width:320px;height:320px;
+    background:radial-gradient(circle,rgba(167,139,250,.18),transparent 66%);pointer-events:none;
+  }
+  .eyebrow{
+    display:inline-flex;align-items:center;gap:8px;
+    font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-3);
+    border:1px solid var(--border);border-radius:999px;padding:4px 12px;background:rgba(255,255,255,.02);
+  }
+  h1{margin:16px 0 8px;font-size:31px;line-height:1.28;letter-spacing:-.4px}
+  h1 .grad{background:linear-gradient(92deg,var(--accent),var(--accent-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--text-2);font-size:14.5px;margin:0 0 20px}
+  .meta{display:flex;flex-wrap:wrap;gap:10px}
+  .chip{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:12.5px;color:var(--text-2);
+    border:1px solid var(--border);background:var(--card);
+    border-radius:8px;padding:5px 11px;
+  }
+  .chip b{color:var(--text);font-weight:600}
+
+  /* ---------- sections ---------- */
+  section{margin-top:46px}
+  h2{
+    font-size:20px;margin:0 0 6px;letter-spacing:-.2px;
+    display:flex;align-items:center;gap:10px;
+  }
+  h2 .idx{
+    font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--accent);
+    border:1px solid rgba(91,157,255,.35);background:rgba(91,157,255,.09);
+    border-radius:6px;padding:2px 7px;flex:none;
+  }
+  h3{font-size:15.5px;margin:26px 0 10px;color:var(--text)}
+  .lead{color:var(--text-2);font-size:14px;margin:0 0 18px;max-width:80ch}
+
+  /* ---------- cards ---------- */
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  @media (max-width:880px){.g2,.g3{grid-template-columns:1fr}}
+
+  .card{
+    border:1px solid var(--border);background:var(--card);
+    border-radius:13px;padding:18px 18px 16px;
+  }
+  .card h4{margin:0 0 8px;font-size:14.5px;display:flex;align-items:center;gap:8px}
+  .card p{margin:0;color:var(--text-2);font-size:13.6px}
+  .card ul{margin:8px 0 0;padding-left:18px;color:var(--text-2);font-size:13.6px}
+  .card li{margin:4px 0}
+  .card li b,.card p b{color:var(--text)}
+
+  /* tldr */
+  .tldr{
+    border:1px solid rgba(91,157,255,.28);
+    background:linear-gradient(180deg,rgba(91,157,255,.07),rgba(91,157,255,.02));
+    border-radius:14px;padding:20px 22px;
+  }
+  .tldr ol{margin:0;padding-left:22px}
+  .tldr li{margin:9px 0;color:var(--text-2);font-size:14px}
+  .tldr li b{color:var(--text);font-weight:600}
+
+  /* ---------- badges ---------- */
+  .badge{
+    display:inline-flex;align-items:center;gap:5px;flex:none;
+    font-family:ui-monospace,Consolas,monospace;font-size:11px;font-weight:700;
+    border-radius:6px;padding:2px 7px;letter-spacing:.04em;
+  }
+  .b-p0{color:#ffc9c9;background:rgba(255,107,107,.16);border:1px solid rgba(255,107,107,.42)}
+  .b-p1{color:#ffe0bd;background:rgba(255,169,77,.15);border:1px solid rgba(255,169,77,.42)}
+  .b-p2{color:#fff3bf;background:rgba(255,212,59,.13);border:1px solid rgba(255,212,59,.38)}
+  .b-p3{color:#cfe8ff;background:rgba(99,179,237,.14);border:1px solid rgba(99,179,237,.38)}
+  .b-ok{color:#c3f5cd;background:rgba(81,207,102,.13);border:1px solid rgba(81,207,102,.38)}
+  .b-mut{color:var(--text-3);background:rgba(255,255,255,.04);border:1px solid var(--border)}
+
+  /* ---------- tables ---------- */
+  .tw{overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--card)}
+  table{border-collapse:collapse;width:100%;min-width:600px;font-size:13.5px}
+  th,td{padding:11px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--border)}
+  thead th{
+    background:rgba(255,255,255,.025);color:var(--text-2);
+    font-weight:600;font-size:12.5px;letter-spacing:.03em;position:sticky;top:0;
+    white-space:nowrap;
+  }
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:rgba(255,255,255,.017)}
+  td b{color:var(--text)}
+  td small{color:var(--text-3);font-size:12.3px}
+
+  /* dots level */
+  .dots{font-family:ui-monospace,monospace;letter-spacing:2px;font-size:12px;white-space:nowrap}
+  .d5{color:#51cf66}.d4{color:#8ce99a}.d3{color:#ffd43b}.d2{color:#ffa94d}.d1{color:#ff6b6b}
+
+  /* problem list */
+  .prob{border:1px solid var(--border);background:var(--card);border-radius:12px;padding:0;overflow:hidden}
+  .prob-head{
+    display:flex;align-items:flex-start;gap:11px;padding:15px 17px;
+    background:rgba(255,255,255,.018);
+  }
+  .prob-head .t{flex:1;min-width:0}
+  .prob-head .t strong{display:block;font-size:14.5px;font-weight:600}
+  .prob-head .t span{display:block;color:var(--text-3);font-size:12.5px;margin-top:2px}
+  .prob-body{padding:14px 17px 16px;border-top:1px solid var(--border);font-size:13.6px;color:var(--text-2)}
+  .prob-body .row{display:grid;grid-template-columns:74px 1fr;gap:10px;margin:6px 0}
+  .prob-body .row .k{color:var(--text-3);font-size:12.5px;padding-top:1px}
+  .prob-body .row .v{min-width:0}
+  code{
+    font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:12.2px;
+    background:rgba(255,255,255,.055);border:1px solid var(--border);
+    border-radius:5px;padding:1px 5px;color:#cfe3ff;
+  }
+  .stack{display:grid;gap:12px}
+
+  /* roadmap */
+  .road{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  @media (max-width:980px){.road{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:620px){.road{grid-template-columns:1fr}}
+  .rel{border:1px solid var(--border);background:var(--card);border-radius:13px;padding:16px;position:relative;overflow:hidden}
+  .rel::before{content:"";position:absolute;left:0;top:0;width:100%;height:3px;background:linear-gradient(90deg,var(--accent),var(--accent-2))}
+  .rel.r2::before{background:linear-gradient(90deg,#51cf66,#63b3ed)}
+  .rel.r3::before{background:linear-gradient(90deg,#ffa94d,#ffd43b)}
+  .rel.r4::before{background:linear-gradient(90deg,#a78bfa,#ff6b6b)}
+  .rel h4{margin:8px 0 2px;font-size:15px}
+  .rel .goal{color:var(--text-3);font-size:12.5px;margin:0 0 10px}
+  .rel ul{margin:0;padding-left:17px;font-size:13.2px;color:var(--text-2)}
+  .rel li{margin:5px 0}
+
+  /* svg matrix */
+  .matrix{display:block;width:100%;height:auto;border:1px solid var(--border);border-radius:12px;background:var(--card)}
+
+  .note{
+    border-left:3px solid var(--accent);background:rgba(91,157,255,.06);
+    border-radius:0 10px 10px 0;padding:13px 16px;font-size:13.6px;color:var(--text-2);margin-top:14px;
+  }
+  .note.warn{border-left-color:var(--p1);background:rgba(255,169,77,.07)}
+  .note b{color:var(--text)}
+
+  footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--border);color:var(--text-3);font-size:12.5px}
+  @media print{
+    body{background:#fff;color:#111}
+    .card,.tw,.prob,.rel,.hero,.tldr{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ================= HEADER ================= -->
+  <div class="hero">
+    <span class="eyebrow">Product Review · Desktop App</span>
+    <h1>MyMdEdit 产品诊断与优化路线图<br><span class="grad">从「功能齐全」到「产品可信」</span></h1>
+    <p class="sub">以 Windows 桌面级应用的产品标准，对 MyMdEdit v1.0.74 做一次全景诊断：定位、缺口、优先级与落地路线。</p>
+    <div class="meta">
+      <span class="chip">版本 <b>v1.0.74</b></span>
+      <span class="chip">栈 <b>Tauri 2 + Rust + React 19</b></span>
+      <span class="chip">内核 <b>Milkdown / ProseMirror + CodeMirror 6</b></span>
+      <span class="chip">日期 <b>2026-09-16</b></span>
+      <span class="chip">方式 <b>代码实证盘点</b></span>
+    </div>
+  </div>
+
+  <!-- ================= 0 TLDR ================= -->
+  <section>
+    <h2><span class="idx">00</span>结论先行</h2>
+    <p class="lead">一句话判断：<b>功能广度已经超过 Typora，但产品成熟度还差一个身位。</b>它现在是「一堆好功能的集合」，还不是「一个可信赖的产品」——差距不在编辑器内核，而在安装之后的完整生命周期。</p>
+    <div class="tldr">
+      <ol>
+        <li><b>最致命的是数据安全感缺口。</b>无本地历史/版本、无崩溃恢复、无独立备份目录。2 秒防抖自动保存直接写盘，等于「改错即覆盖原文」，且崩溃发生在保存窗口内就会丢内容。这是唯一会让用户「失去信任」的类别。</li>
+        <li><b>Windows 原生化只做了一半。</b>自绘标题栏、托盘、拖放、文件关联、单实例都有；但窗口尺寸/位置/最大化状态不记忆、无自动更新、无跳转列表、无全局快捷键、无「跟随系统」深浅色——这些正是用户判断「像不像专业软件」的地方。</li>
+        <li><b>规模一旦上来就会撞墙。</b>全局搜索是每次全量递归扫描（无索引、不读 <code>.gitignore</code>、不流式返回、不可取消）；编辑器对大文档无虚拟化。单目录几百篇课件没问题，上千篇就会明显变慢。</li>
+        <li><b>设置面板过于单薄（仅 4 项）。</b>本质问题是「可控感」不足：默认打开模式、行号/折行、Tab 宽度、图片粘贴行为、备份间隔、启动行为、面板布局都不给用户选。</li>
+        <li><b>护城河应选「中文写作 + 教学/课件 + 本地零依赖」。</b>导出 6 格式、片段库、中文排版优化、Markdown 校验、公众号复制、EPUB 这套组合是真实差异点，应围绕「讲稿生产流水线」继续加深，而不是去追 Obsidian 的双链图谱。</li>
+      </ol>
+    </div>
+
+    <h3>先做什么：四象限</h3>
+    <svg class="matrix" viewBox="0 0 680 400" role="img" aria-label="优化项优先级四象限图">
+      <defs>
+        <linearGradient id="q1g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#ff6b6b" stop-opacity=".20"/>
+          <stop offset="1" stop-color="#ff6b6b" stop-opacity=".04"/>
+        </linearGradient>
+        <linearGradient id="q2g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#ffa94d" stop-opacity=".14"/>
+          <stop offset="1" stop-color="#ffa94d" stop-opacity=".03"/>
+        </linearGradient>
+        <linearGradient id="q3g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#63b3ed" stop-opacity=".10"/>
+          <stop offset="1" stop-color="#63b3ed" stop-opacity=".02"/>
+        </linearGradient>
+        <linearGradient id="q4g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#767e8d" stop-opacity=".10"/>
+          <stop offset="1" stop-color="#767e8d" stop-opacity=".02"/>
+        </linearGradient>
+      </defs>
+
+      <!-- quadrants -->
+      <rect x="70" y="30" width="285" height="160" rx="10" fill="url(#q1g)" stroke="#3a2530"/>
+      <rect x="355" y="30" width="285" height="160" rx="10" fill="url(#q2g)" stroke="#3b3125"/>
+      <rect x="70" y="190" width="285" height="160" rx="10" fill="url(#q3g)" stroke="#25333e"/>
+      <rect x="355" y="190" width="285" height="160" rx="10" fill="url(#q4g)" stroke="#2a2f39"/>
+
+      <!-- axes -->
+      <line x1="70" y1="190" x2="640" y2="190" stroke="#2a2f39" stroke-width="1"/>
+      <line x1="355" y1="30" x2="355" y2="350" stroke="#2a2f39" stroke-width="1"/>
+
+      <!-- axis labels -->
+      <text x="355" y="18" fill="#a9b0be" font-size="12" text-anchor="middle" font-family="Segoe UI, PingFang SC, sans-serif">用户感知价值 / 信任影响 → 高</text>
+      <text x="355" y="378" fill="#767e8d" font-size="12" text-anchor="middle" font-family="Segoe UI, PingFang SC, sans-serif">用户感知价值 / 信任影响 → 低</text>
+      <text x="62" y="195" fill="#767e8d" font-size="12" text-anchor="end" font-family="Segoe UI, PingFang SC, sans-serif">实现成本 低</text>
+      <text x="648" y="195" fill="#767e8d" font-size="12" font-family="Segoe UI, PingFang SC, sans-serif">实现成本 高</text>
+
+      <!-- Q1: high value, low cost -->
+      <text x="84" y="52" fill="#ffc9c9" font-size="12.5" font-weight="700" font-family="Segoe UI, PingFang SC, sans-serif">立即做（高价值 / 低成本）</text>
+      <g font-family="Segoe UI, PingFang SC, sans-serif" font-size="12.5" fill="#e8eaf0">
+        <text x="88" y="78">· HTML 块 DOMPurify 清洗</text>
+        <text x="88" y="100">· 窗口尺寸/位置记忆</text>
+        <text x="88" y="122">· 关闭到托盘的首次告知</text>
+        <text x="88" y="144">· release 移除 devtools 权限</text>
+        <text x="88" y="166">· 命令面板补全 + 最近关闭</text>
+      </g>
+
+      <!-- Q2: high value, high cost -->
+      <text x="369" y="52" fill="#ffe0bd" font-size="12.5" font-weight="700" font-family="Segoe UI, PingFang SC, sans-serif">排期做（高价值 / 高成本）</text>
+      <g font-family="Segoe UI, PingFang SC, sans-serif" font-size="12.5" fill="#e8eaf0">
+        <text x="373" y="78">· 本地历史快照与版本恢复</text>
+        <text x="373" y="100">· 崩溃恢复 + 错误日志</text>
+        <text x="373" y="122">· 自动更新通道</text>
+        <text x="373" y="144">· 搜索索引 / 流式结果</text>
+        <text x="373" y="166">· 大文档虚拟化渲染</text>
+      </g>
+
+      <!-- Q3: low value, low cost -->
+      <text x="84" y="212" fill="#cfe8ff" font-size="12.5" font-weight="700" font-family="Segoe UI, PingFang SC, sans-serif">顺手做（低成本 / 锦上添花）</text>
+      <g font-family="Segoe UI, PingFang SC, sans-serif" font-size="12.5" fill="#c8ceda">
+        <text x="88" y="238">· 跟随系统深浅色</text>
+        <text x="88" y="260">· 状态栏光标行列 / 换行符</text>
+        <text x="88" y="282">· Ctrl+0 重置缩放</text>
+        <text x="88" y="304">· 标签拖拽排序</text>
+        <text x="88" y="326">· 关于页 / 更新日志入口</text>
+      </g>
+
+      <!-- Q4: low value, high cost -->
+      <text x="369" y="212" fill="#9aa2b1" font-size="12.5" font-weight="700" font-family="Segoe UI, PingFang SC, sans-serif">暂缓（先别碰）</text>
+      <g font-family="Segoe UI, PingFang SC, sans-serif" font-size="12.5" fill="#8f97a6">
+        <text x="373" y="238">· 双链 / 反链 / 知识图谱</text>
+        <text x="373" y="260">· 插件系统</text>
+        <text x="373" y="282">· 自建云同步</text>
+        <text x="373" y="304">· 多窗口工作区</text>
+        <text x="373" y="326">· Vim / 多光标等重度编辑</text>
+      </g>
+    </svg>
+  </section>
+
+  <!-- ================= 1 定位 ================= -->
+  <section>
+    <h2><span class="idx">01</span>产品定位与竞品坐标</h2>
+    <p class="lead">定位决定取舍。MyMdEdit 不应与 Obsidian 争「第二大脑」，而应占住「中文写作 + 课件/讲稿生产 + 本地零依赖」这个位置。</p>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr><th>维度</th><th>MyMdEdit</th><th>Typora</th><th>Obsidian</th><th>VNote</th><th>判断</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>核心形态</b></td>
+            <td>所见即所得 + 源码双模</td>
+            <td>所见即所得（最纯粹）</td>
+            <td>源码 + 实时预览</td>
+            <td>所见即所得 + 大纲</td>
+            <td>已对齐第一梯队</td>
+          </tr>
+          <tr>
+            <td><b>启动与体积</b></td>
+            <td>Tauri，exe 约 7MB，零外部依赖</td>
+            <td>Electron，安装包约 80MB+</td>
+            <td>Electron，较重</td>
+            <td>Qt，中等</td>
+            <td><span class="badge b-ok">优势</span> 轻量是记忆点</td>
+          </tr>
+          <tr>
+            <td><b>导出能力</b></td>
+            <td>PDF / Word / HTML / PNG / SVG / EPUB（6 种）</td>
+            <td>PDF / HTML / Word(部分)</td>
+            <td>PDF / HTML（需插件）</td>
+            <td>PDF / HTML</td>
+            <td><span class="badge b-ok">优势</span> 明显领先</td>
+          </tr>
+          <tr>
+            <td><b>中文写作</b></td>
+            <td>排版优化（补空格/全角）、公众号/知乎/CSDN 富文本复制</td>
+            <td>无</td>
+            <td>无</td>
+            <td>无</td>
+            <td><span class="badge b-ok">差异点</span> 护城河</td>
+          </tr>
+          <tr>
+            <td><b>教学/课件</b></td>
+            <td>Markdown 校验、目录插入、片段库、每日笔记模板、Mermaid、KaTeX</td>
+            <td>部分</td>
+            <td>需社区插件</td>
+            <td>部分</td>
+            <td><span class="badge b-p2">待挖</span> 尚未形成闭环</td>
+          </tr>
+          <tr>
+            <td><b>知识组织</b></td>
+            <td>文件树 + 大纲 + 模糊搜索</td>
+            <td>文件树</td>
+            <td>双链 / 标签 / 图谱 / 索引</td>
+            <td>笔记本 / 标签</td>
+            <td><span class="badge b-mut">不追</span> 非本产品战场</td>
+          </tr>
+          <tr>
+            <td><b>数据安全</b></td>
+            <td>原子写 + 回收站删除 + 2s 自动保存</td>
+            <td>自动保存 + 恢复</td>
+            <td>文件历史（需同步）+ 快照插件</td>
+            <td>自动保存</td>
+            <td><span class="badge b-p0">短板</span> 无版本、无崩溃恢复</td>
+          </tr>
+          <tr>
+            <td><b>产品化程度</b></td>
+            <td>无自动更新、无引导、无反馈入口、无错误上报</td>
+            <td>自动更新、帮助体系成熟</td>
+            <td>自动更新、插件市场</td>
+            <td>自动更新</td>
+            <td><span class="badge b-p0">短板</span> 最大差距</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <b>结论：</b>编辑内核与导出已经赢在起跑线，输在「跑起来之后的长期体验」。下一步的投入重心应从「再加功能」转向「把已有功能做成可信赖的产品」，同时把中文写作与教学流水线做深——那才是别人抢不走的部分。
+    </div>
+  </section>
+
+  <!-- ================= 2 能力盘点 ================= -->
+  <section>
+    <h2><span class="idx">02</span>能力盘点：现在已经有什么</h2>
+    <p class="lead">基于代码实证梳理（成熟度 5 = 可放心交付，3 = 能用但有明显缺口，1 = 仅具备雏形）。</p>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr><th>模块</th><th>已具备能力</th><th>成熟度</th><th>备注</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>编辑内核</b></td>
+            <td>Milkdown 所见即所得、CodeMirror 6 源码模式、围栏代码高亮、表格拖拽重排、自动配对、Emoji 补全、任务勾选、打字机专注模式、标题自动编号</td>
+            <td><span class="dots d5">●●●●●</span></td>
+            <td>插件化做得干净，是本项目最扎实的部分</td>
+          </tr>
+          <tr>
+            <td><b>文件与目录</b></td>
+            <td>文件树、多标签、最近文件、新建/重命名/删除（走回收站）、原子写、目录监听外部变更、会话恢复</td>
+            <td><span class="dots d4">●●●●○</span></td>
+            <td>缺本地历史；标签能力偏弱</td>
+          </tr>
+          <tr>
+            <td><b>导航与检索</b></td>
+            <td>大纲面板、Ctrl+P 文件跳转（模糊匹配）、Ctrl+K 命令面板、全局搜索 + 跨文件替换（事务回滚）、正文查找替换</td>
+            <td><span class="dots d3">●●●○○</span></td>
+            <td>无索引、不流式、不可取消，规模上来会慢</td>
+          </tr>
+          <tr>
+            <td><b>导出与发布</b></td>
+            <td>PDF（静默打印 + 书签注入）/ Word / HTML / PNG / SVG / EPUB；公众号·知乎·CSDN 富文本复制</td>
+            <td><span class="dots d4">●●●●○</span></td>
+            <td>公众号复制配图会裂（图床已移除）</td>
+          </tr>
+          <tr>
+            <td><b>写作辅助</b></td>
+            <td>片段库、文档统计（字数/阅读时长等 13 项）、Markdown 校验（链接图片）、整理格式、插入目录、中文排版优化、Front Matter GUI、每日笔记模板、主题多套</td>
+            <td><span class="dots d4">●●●●○</span></td>
+            <td>功能多但入口分散，缺「写作流」串起来</td>
+          </tr>
+          <tr>
+            <td><b>系统集成</b></td>
+            <td>自绘标题栏、系统托盘（新建/呼出/退出 + 未保存确认）、关闭最小化到托盘、文件+文件夹拖放、.md 文件关联、单实例、Ctrl+滚轮缩放、F11 全屏</td>
+            <td><span class="dots d3">●●●○○</span></td>
+            <td>缺窗口状态记忆、自动更新、全局快捷键、跳转列表</td>
+          </tr>
+          <tr>
+            <td><b>可靠性工程</b></td>
+            <td>原子写、写盘串行队列、搜索事务回滚、大文件保护（10MB 转源码模式）、自动保存失败显式提示</td>
+            <td><span class="dots d3">●●●○○</span></td>
+            <td>缺错误边界、崩溃日志、恢复机制</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <b>诚实评价：</b>工程细节（原子写、事务回滚、防抖持久化、串行队列）的完成度相当高，说明代码质量不是短板。真正欠的是「面向用户的产品机制」——那些不写也能用、但没有就会让人不放心、不顺手的东西。
+    </div>
+  </section>
+
+  <!-- ================= 3 问题清单 ================= -->
+  <section>
+    <h2><span class="idx">03</span>问题清单：按优先级排</h2>
+    <p class="lead">P0 影响信任与数据，P1 是体验硬伤，P2 是可感知的打磨，P3 是增强与探索。</p>
+
+    <h3>P0 · 立刻要解决（影响信任）</h3>
+    <div class="stack">
+
+      <div class="prob">
+        <div class="prob-head">
+          <span class="badge b-p0">P0</span>
+          <div class="t">
+            <strong>没有本地历史与版本恢复</strong>
+            <span>误删、误改、粘贴覆盖，全都无法回退</span>
+          </div>
+        </div>
+        <div class="prob-body">
+          <div class="row"><div class="k">现状</div><div class="v">自动保存是 2 秒防抖后<b>直接覆盖写盘</b>。回收站只保护「删除文件」这一种操作，不保护「改坏内容」。</div></div>
+          <div class="row"><div class="k">影响</div><div class="v">老师备课改错一段、学生误粘贴覆盖课件，撤销栈关掉窗口就没了。<b>这是会让用户不敢用的第一原因。</b></div></div>
+          <div class="row"><div class="k">建议</div><div class="v">在应用数据目录建 <code>history/&lt;文件hash&gt;/时间戳.md</code>，每次保存前留一份快照，滚动保留最近 7 天 / 50 版；提供「文件历史」面板做对比与回滚。成本不高，但价值极高。</div></div>
+        </div>
+      </div>
+
+      <div class="prob">
+        <div class="prob-head">
+          <span class="badge b-p0">P0</span>
+          <div class="t">
+            <strong>没有崩溃恢复与错误日志</strong>
+            <span>渲染进程一崩，未保存内容直接蒸发，且无从定位</span>
+          </div>
+        </div>
+        <div class="prob-body">
+          <div class="row"><div class="k">现状</div><div class="v">前端无 ErrorBoundary、无 <code>window.onerror</code> 捕获；Rust 侧无日志文件；崩溃后无「恢复上次编辑」入口。</div></div>
+          <div class="row"><div class="k">影响</div><div class="v">2 秒自动保存窗口内崩溃 = 丢内容。更麻烦的是<b>崩溃后完全无迹可查</b>——上一轮反馈的「源码模式空白 / 网络图片不加载 / WebView2 停止工作」到现在都没能闭环，根因就是缺日志。</div></div>
+          <div class="row"><div class="k">建议</div><div class="v">三件事：① 编辑缓冲持久化到 <code>localStorage</code>（每 500ms，写 dirty buffer），启动时检测并提示恢复；② 加 ErrorBoundary + 全局错误捕获，写本地日志文件；③ 加「导出诊断日志」按钮，方便反馈问题。</div></div>
+        </div>
+      </div>
+
+      <div class="prob">
+        <div class="prob-head">
+          <span class="badge b-p0">P0</span>
+          <div class="t">
+            <strong>HTML 块直接 innerHTML 渲染，未做清洗</strong>
+            <span>课件里粘贴的 HTML 可执行脚本</span>
+          </div>
+        </div>
+        <div class="prob-body">
+          <div class="row"><div class="k">现状</div><div class="v"><code>plugins/html.ts</code> 用 <code>dom.innerHTML = value</code> 直接渲染块级/行内 HTML，未接 DOMPurify。</div></div>
+          <div class="row"><div class="k">影响</div><div class="v">课件若来自外部（学生作业、网上下载的 md），恶意脚本可在应用上下文执行。桌面应用通常不需要提权，但可读取本地文件、窃取内容。</div></div>
+          <div class="row"><div class="k">建议</div><div class="v">接入 DOMPurify 白名单清洗（保留 img/table/svg 等常用标签与 style），半天工作量。<b>顺带把 release 构建的 <code>devtools</code> feature 去掉</b>，并收紧 CSP 中仅开发环境需要的 <code>localhost:1420</code> 放行。</div></div>
+        </div>
+      </div>
+
+      <div class="prob">
+        <div class="prob-head">
+          <span class="badge b-p0">P0</span>
+          <div class="t">
+            <strong>关闭行为不透明，用户以为退出了实际还在后台</strong>
+            <span>关闭 = 隐藏到托盘，但没有任何告知</span>
+          </div>
+        </div>
+        <div class="prob-body">
+          <div class="row"><div class="k">现状</div><div class="v">点关闭按钮直接 <code>hide()</code>，无提示、无托盘气泡；托盘图标被 Windows 折叠时用户找不到应用。</div></div>
+          <div class="row"><div class="k">影响</div><div class="v">常见误解「我关了怎么还在运行」，或反复双击图标无反应（被单实例挡住）。</div></div>
+          <div class="row"><div class="k">建议</div><div class="v">首次关闭到托盘时弹一次气泡/提示「已最小化到托盘，点击托盘图标可恢复」，并提供「关闭时最小化到托盘」开关（默认开）；同时在设置里给出「彻底退出」的明确路径。</div></div>
+        </div>
+      </div>
+
+    </div>
+
+    <h3>P1 · 体验硬伤（决定「像不像专业软件」）</h3>
+    <div class="stack">
+
+      <div class="prob">
+        <div class="prob-head">
+          <span class="badge b-p1">P1</span>
+          <div class="t">
+            <strong>窗口尺寸、位置、最大化状态不记忆</strong>
+            <span>每次启动都是固定 1280×820</span>
+          </div>
+        </div>
+        <div class="prob-body">
+          <div class="row"><div class="k">现状</div><div class="v">未引入 window-state 能力，窗口几何完全由配置写死。</div></div>
+          <div class="row"><div class="k">影响</div><div class="v">双屏用户每次都要重新摆放窗口；最大化状态丢失。属于 Windows 桌面的基本素养，缺失感极强、修复成本极低。</div></div>
+          <div class="row"><div class="k">建议</div><div class="v">引入 <code>tauri-plugin-window-state</code>，一行配置即可记忆尺寸/位置/最大化。约 1 小时。</div></div>
+        </div>
+      </div>
+
+      <div class="prob">
+        <div class="prob-head">
+          <span class="badge b-p1">P1</span>
+          <div class="t">
+            <strong>没有自动更新机制</strong>
+            <span>装了 v1.0.x 就永远是 v1.0.x</span>
+          </div>
+        </div>
+        <div class="prob-body">
+          <div class="row"><div class="k">现状</div><div class="v">已有 NSIS 打包与单实例，但无 updater 通道，也无「检查更新」入口与更新日志页。</div></div>
+          <div class="row"><div class="k">影响</div><div class="v">修复与改进无法触达用户；老师群体通常不会主动来问「最新版在哪」。对自研/内部分发产品，这是迭代闭环的断点。</div></div>
+          <div class="row"><div class="k">建议</div><div class="v">接 <code>tauri-plugin-updater</code>（签名 + 静态 JSON 清单即可，无需服务器），做「启动静默检查 + 设置页手动检查」；同时加「关于」页展示版本与更新日志。</div></div>
+        </div>
+      </div>
+
+      <div class="prob">
+        <div class="prob-head">
+          <span class="badge b-p1">P1</span>
+          <div class="t">
+            <strong>规模化性能：搜索与渲染都会撞墙</strong>
+            <span>小目录没问题，大知识库会明显变慢</span>
+          </div>
+        </div>
+        <div class="prob-body">
+          <div class="row"><div class="k">现状</div><div class="v">全局搜索每次调用都全量递归遍历 + 逐行匹配，结果一次性返回；无索引、不读 <code>.gitignore</code>（仅硬编码跳过 node_modules/target 等）、无流式增量、无取消。编辑器对大文档无虚拟化（10MB 以上仅提示转源码模式）。</div></div>
+          <div class="row"><div class="k">影响</div><div class="v">课件目录上千篇后，搜索会卡住数秒且不能中止；十万行级别的单文件编辑会掉帧。</div></div>
+          <div class="row"><div class="k">建议</div><div class="v">搜索侧：用并行遍历 + <code>ignore</code> 规则（尊重 .gitignore/.mdignore）+ 结果流式推送（事件分批）+ 取消令牌。渲染侧：设置「超过 N 行自动进源码模式」的可配阈值 + 编辑器分块渲染/视口裁剪。另加启动与首次渲染耗时埋点，先量化再优化。</div></div>
+        </div>
+      </div>
+
+      <div class="prob">
+        <div class="prob-head">
+          <span class="badge b-p1">P1</span>
+          <div class="t">
+            <strong>设置面板过于单薄，用户没有「可控感」</strong>
+            <span>只有 4 个选项：字号、自动保存、拼写、标题编号</span>
+          </div>
+        </div>
+        <div class="prob-body">
+          <div class="row"><div class="k">现状</div><div class="v">绝大多数行为写死在代码里，用户无法调整。</div></div>
+          <div class="row"><div class="k">影响</div><div class="v">不同用户的工作习惯差异巨大（有人要行号、有人要折行、有人要默认源码模式），没有开关就会产生「这软件不合我用」的判断。</div></div>
+          <div class="row"><div class="k">建议</div><div class="v">按分组扩到 5 类：<b>编辑器</b>（默认打开模式、行号、折行、Tab 宽度、字号、字体）、<b>文件</b>（自动保存间隔、备份保留份数、图片保存位置与命名、大文件阈值）、<b>视图</b>（主题与跟随系统、侧边栏/大纲默认显隐、状态栏项目）、<b>导出</b>（默认格式、PDF 页边距与页码、是否内联图片）、<b>系统</b>（关闭行为、开机自启、语言、检查更新）。</div></div>
+        </div>
+      </div>
+
+      <div class="prob">
+        <div class="prob-head">
+          <span class="badge b-p1">P1</span>
+          <div class="t">
+            <strong>面板不可控：侧边栏/大纲无法手动开关</strong>
+            <span>布局由代码决定，用户不能自定义工作区</span>
+          </div>
+        </div>
+        <div class="prob-body">
+          <div class="row"><div class="k">现状</div><div class="v">大纲面板仅在「当前文档有标题」时自动出现，没有显隐开关；侧边栏也没有折叠按钮；没有「视图」菜单。</div></div>
+          <div class="row"><div class="k">影响</div><div class="v">想专注写作时必须拖拽宽度或进全屏（会连工具栏一起隐藏），缺少「只留编辑器」的干净布局。</div></div>
+          <div class="row"><div class="k">建议</div><div class="v">加视图菜单与快捷键：切换侧边栏（Ctrl+B 已占用则用 Ctrl+Shift+B）、切换大纲、切换状态栏、禅模式（隐藏所有面板仅留正文）。</div></div>
+        </div>
+      </div>
+
+      <div class="prob">
+        <div class="prob-head">
+          <span class="badge b-p1">P1</span>
+          <div class="t">
+            <strong>标签页能力偏弱</strong>
+            <span>不能拖拽排序，也没有「重新打开已关闭」</span>
+          </div>
+        </div>
+        <div class="prob-body">
+          <div class="row"><div class="k">现状</div><div class="v">已有右键「关闭当前/左边/右边/非当前」，但无拖拽重排、无最近关闭恢复、无「复制路径 / 在资源管理器中显示 / 打开所在文件夹」。</div></div>
+          <div class="row"><div class="k">建议</div><div class="v">补 4 项：标签拖拽排序、Ctrl+Shift+T 重新打开、右键复制路径/在资源管理器中显示、双击标签区新建文件。</div></div>
+        </div>
+      </div>
+
+    </div>
+
+    <h3>P2 · 精细化打磨（细节即品质）</h3>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr><th>#</th><th>问题</th><th>影响</th><th>建议</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td><b>公众号/知乎复制后配图会裂</b></td>
+            <td>粘贴到平台后图片全是本地路径，等于半截功能</td>
+            <td>复制时把图片内联为 dataURL（小图）或提示「先上传图床」；或恢复一个可控的图片上传（剪贴板直传）</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td><b>命令面板覆盖不全</b></td>
+            <td>导出 EPUB、新建文件、打开文件夹、每日笔记、切换面板都不在命令里</td>
+            <td>把所有可执行动作统一注册进命令表，面板与工具栏共用同一份定义（避免两处维护漂移）</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td><b>快捷键无冲突检测与配置迁移</b></td>
+            <td>改冲突了不知道；换机器要重设</td>
+            <td>录制时即时检测冲突并提示；设置面板加「导出/导入快捷键配置」</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td><b>无「最近关闭」与跨目录最近文件</b></td>
+            <td>误关标签只能重新找文件</td>
+            <td>内存 + localStorage 维护最近关闭栈（10 个），支持 Ctrl+Shift+T</td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td><b>状态栏信息不足</b></td>
+            <td>缺光标行列、选区字数、编码、换行符（LF/CRLF）、缩放百分比</td>
+            <td>状态栏右侧补这些状态项，允许在设置里选择显示哪些</td>
+          </tr>
+          <tr>
+            <td>6</td>
+            <td><b>无「关于 / 更新日志 / 反馈」入口</b></td>
+            <td>用户遇到问题无处反馈，也不知道新版本改了什么</td>
+            <td>设置里加「关于」页：版本、构建时间、更新日志、一键复制诊断信息</td>
+          </tr>
+          <tr>
+            <td>7</td>
+            <td><b>Toast 与提示体系单一</b></td>
+            <td>长任务（导出、搜索、批量替换）无进度、不可取消</td>
+            <td>引入进度条式 Toast 与可取消操作，耗时任务统一走它</td>
+          </tr>
+          <tr>
+            <td>8</td>
+            <td><b>空状态与首次体验无引导</b></td>
+            <td>首次打开只见「打开文件夹或文件」，不知道能做什么</td>
+            <td>首次启动向导：选择目录 → 介绍 3 个核心能力（源码模式、导出、片段库）→ 提供示例文档</td>
+          </tr>
+          <tr>
+            <td>9</td>
+            <td><b>图片插入流程不统一</b></td>
+            <td>粘贴/拖入图片的落盘位置、命名规则、是否压缩不明确</td>
+            <td>统一为「同目录 .assets 子目录 + 相对路径引用」，设置里可改命名模板并可选压缩</td>
+          </tr>
+          <tr>
+            <td>10</td>
+            <td><b>错误文案偏技术化</b></td>
+            <td>如「自动保存失败：xxx」直接抛原始错误</td>
+            <td>统一错误映射为人话 + 建议动作（如「文件被占用，请关闭其他程序后重试」），附「复制详情」</td>
+          </tr>
+          <tr>
+            <td>11</td>
+            <td><b>无「跟随系统」深浅色</b></td>
+            <td>多套主题很漂亮，但要手动切</td>
+            <td>加 system 主题选项，监听系统主题变化实时切换</td>
+          </tr>
+          <tr>
+            <td>12</td>
+            <td><b>Ctrl+滚轮缩放无重置与可视化</b></td>
+            <td>缩放到 32px 后想回默认只能再滚回去</td>
+            <td>加 Ctrl+0 重置为 100%、状态栏显示缩放百分比、设置里给「恢复默认字号」</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>P3 · 增强与探索（做之前先想清楚为什么）</h3>
+    <div class="grid g2">
+      <div class="card">
+        <h4>Windows 原生化（性价比高）</h4>
+        <ul>
+          <li><b>任务栏跳转列表</b>：右键任务栏图标直达最近文件 / 新建文件</li>
+          <li><b>资源管理器右键「新建 Markdown 文档」</b>：写 shell new 菜单，老师建课件更顺手</li>
+          <li><b>全局快捷键快速记录</b>：如 Ctrl+Alt+N 任意位置唤起小窗速记并落盘到收件箱</li>
+          <li><b>开机自启（可选）</b>+ 托盘常驻，配合速记形成习惯</li>
+          <li><b>缩略图工具栏</b>（任务栏预览上的按钮）、系统通知（保存失败/导出完成）</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>教学场景闭环（差异化护城河）</h4>
+        <ul>
+          <li><b>演示模式</b>：大纲驱动的全屏翻页讲稿，一行一页、代码高亮渐进显示，讲课直接用它</li>
+          <li><b>模板与变量</b>：课件模板 + <code>{{日期}}</code> <code>{{学期}}</code> <code>{{章节号}}</code> 占位符自动填充</li>
+          <li><b>练习/答案分离导出</b>：同一份文档一键导出「学生版（挖空）」与「教师版（含答案）」</li>
+          <li><b>作业收集批改**：批量打开学生 md → 统一校验/统计 → 汇总报告</li>
+          <li><b>课件体检</b>：把已有的链接/图片校验升级为「结构体检」（标题层级跳级、代码块未闭合、图片缺失、术语一致性）</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>知识组织（选择性做）</h4>
+        <ul>
+          <li>建议只做<b>轻量标签 + [[文件名]] 跳转</b>，不做完整双链图谱——那是 Obsidian 的主场，投入产出比低</li>
+          <li>跨目录「最近文件」与「收藏夹」比双链更实用</li>
+          <li>若做索引，可同时支撑搜索加速与「相关文档」推荐</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>同步与备份（BYO 而非自建）</h4>
+        <ul>
+          <li>不做自建云：接 WebDAV / S3 兼容 / 坚果云等，用户自带账号</li>
+          <li>更轻的方案：<b>一键导出/导入配置与片段库</b>、把备份目录放在用户指定的同步盘内</li>
+          <li>本地历史快照本身就是最好的「穷人版版本控制」，优先于云同步</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 4 Windows 专项 ================= -->
+  <section>
+    <h2><span class="idx">04</span>Windows 桌面专项：专业度体检</h2>
+    <p class="lead">用户对「是不是专业软件」的判断，80% 来自这些操作系统层面的细节，而不是编辑器本身。</p>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr><th>项目</th><th>现状</th><th>缺口 / 建议</th><th>优先级</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><b>窗口外观</b></td><td>自绘标题栏 + 玻璃质感，风格统一</td><td>已达标。建议补「双击标题栏最大化」的视觉反馈与拖拽到屏幕边缘的贴靠（Win+方向键）</td><td><span class="badge b-ok">达标</span></td></tr>
+          <tr><td><b>窗口状态</b></td><td>固定 1280×820</td><td>记忆尺寸/位置/最大化/是否最大化到指定显示器</td><td><span class="badge b-p1">P1</span></td></tr>
+          <tr><td><b>系统托盘</b></td><td>菜单 + 单击呼出 + 未保存确认</td><td>缺首次「已最小化到托盘」告知；缺托盘图标 tooltip 显示当前文件名与未保存数</td><td><span class="badge b-p1">P1</span></td></tr>
+          <tr><td><b>文件关联</b></td><td>.md/.markdown，启动自动写入，工具栏有状态灯</td><td>缺「打开方式」注册完整度校验、缺资源管理器右键「新建文本.md」菜单、缺卸载时清理注册表</td><td><span class="badge b-p2">P2</span></td></tr>
+          <tr><td><b>拖放</b></td><td>拖文件打开、拖文件夹设为根</td><td>缺拖到标签栏新开标签、拖图片自动落盘并插入、拖多文件时的进度反馈</td><td><span class="badge b-p2">P2</span></td></tr>
+          <tr><td><b>自动更新</b></td><td>无</td><td>接入更新通道 + 关于页 + 更新日志</td><td><span class="badge b-p1">P1</span></td></tr>
+          <tr><td><b>全局快捷键</b></td><td>无</td><td>快速记录、呼出/隐藏窗口</td><td><span class="badge b-p3">P3</span></td></tr>
+          <tr><td><b>任务栏集成</b></td><td>无</td><td>跳转列表（最近文件）、缩略图按钮</td><td><span class="badge b-p3">P3</span></td></tr>
+          <tr><td><b>主题与系统</b></td><td>多套主题，默认暗色，记忆用户选择</td><td>缺「跟随系统」；缺高对比度适配</td><td><span class="badge b-p2">P2</span></td></tr>
+          <tr><td><b>输入法体验</b></td><td>中文输入可用</td><td>需实测：候选框定位、长文档输入法组合串、符号自动配对与中文标点冲突</td><td><span class="badge b-p1">P1</span></td></tr>
+          <tr><td><b>缩放与 DPI</b></td><td>Ctrl+滚轮调字号（60ms 节流）</td><td>缺 Ctrl+0 重置、缺缩放百分比显示、缺多显示器不同 DPI 下的实测</td><td><span class="badge b-p2">P2</span></td></tr>
+          <tr><td><b>安装与卸载</b></td><td>NSIS 安装包</td><td>补便携版说明、静默安装参数、卸载时询问是否保留配置与历史</td><td><span class="badge b-p2">P2</span></td></tr>
+          <tr><td><b>可达性</b></td><td>命令面板可键盘操作</td><td>缺菜单栏级键盘导航（Alt 唤起菜单）、焦点环可见性、屏幕阅读器标签</td><td><span class="badge b-p3">P3</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= 5 性能与安全 ================= -->
+  <section>
+    <h2><span class="idx">05</span>性能、可靠性与安全专项</h2>
+    <div class="grid g2">
+      <div class="card">
+        <h4>性能：先量化，再优化</h4>
+        <p>目前没有任何性能埋点，所有判断都靠感觉。建议先加三组指标，再针对性优化。</p>
+        <ul>
+          <li><b>启动</b>：进程启动 → 首屏可交互耗时（目标 &lt;1.5s）</li>
+          <li><b>打开</b>：不同体积文档（10KB / 1MB / 10MB）的打开耗时</li>
+          <li><b>输入</b>：5 万字文档连续输入的帧率与按键延迟</li>
+          <li><b>搜索</b>：100 / 1000 / 10000 篇文档下的 P95 耗时</li>
+          <li><b>内存</b>：长会话（2 小时）内存增长曲线，重点看 Mermaid / KaTeX 缓存是否无界</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>可靠性：把「不会丢」做成承诺</h4>
+        <ul>
+          <li><b>编辑缓冲持久化</b>：未保存内容定期写入本地，启动检测并恢复</li>
+          <li><b>保存失败可视化</b>：已有提示，建议升级为「失败横幅 + 重试 + 另存为」</li>
+          <li><b>写入冲突处理</b>：文件被外部修改时给出「覆盖 / 保留我的 / 对比」三选一（现依赖 watcher 刷新，可能悄悄覆盖）</li>
+          <li><b>只读与锁定文件</b>：明确提示，不静默失败</li>
+          <li><b>权限异常</b>：目标目录不可写时的降级路径（保存到用户文档目录并告知）</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>安全：桌面应用也有攻击面</h4>
+        <ul>
+          <li><b>HTML 清洗</b>（DOMPurify）——当前 P0 缺口</li>
+          <li><b>release 关闭 devtools feature</b>，避免用户侧可开控制台</li>
+          <li><b>收紧 CSP</b>：生产包移除 <code>ws://localhost:1420</code> 等开发放行</li>
+          <li><b>外链打开</b>：统一走系统浏览器，禁止应用内导航到外部页面</li>
+          <li><b>剪贴板富文本</b>：已有转义，保持</li>
+          <li><b>注册表写入</b>：文件关联需可撤销、可查询，并在设置里显式暴露</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>可观测性：没有日志就没有修复</h4>
+        <p>本项目的典型困局是「用户说有问题，但复现不了」。上一轮的三个现象（源码模式空白、网络图片不加载、WebView2 停止工作）至今未闭环，根源就是缺少运行时可观测性。</p>
+        <ul>
+          <li>本地日志文件（按天滚动，保留 7 天），记录：启动、打开/保存、导出、错误堆栈</li>
+          <li>崩溃标记：异常退出后下次启动提示「上次未正常退出，是否查看日志 / 恢复未保存内容」</li>
+          <li>「导出诊断包」按钮，一键打包日志 + 环境信息，方便反馈</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 6 roadmap ================= -->
+  <section>
+    <h2><span class="idx">06</span>落地路线：四个版本</h2>
+    <p class="lead">原则：先把「不会丢、不会崩、能升级」做扎实，再做「更快」，最后做「更好用」。功能广度已经够用，别再横向铺量。</p>
+    <div class="road">
+      <div class="rel">
+        <span class="badge b-p0">v1.1</span>
+        <h4>稳</h4>
+        <p class="goal">目标：让用户敢把重要内容交给它</p>
+        <ul>
+          <li>本地历史快照 + 回滚面板</li>
+          <li>编辑缓冲持久化 + 崩溃恢复</li>
+          <li>错误边界 + 本地日志 + 诊断导出</li>
+          <li>DOMPurify 清洗 + 收紧 CSP + 移除 devtools</li>
+          <li>窗口状态记忆</li>
+          <li>关闭到托盘首次告知 + 开关</li>
+          <li>设置面板扩展（编辑器/文件/视图）</li>
+        </ul>
+      </div>
+      <div class="rel r2">
+        <span class="badge b-p1">v1.2</span>
+        <h4>快</h4>
+        <p class="goal">目标：规模化不卡、迭代能触达</p>
+        <ul>
+          <li>自动更新通道 + 关于页/更新日志</li>
+          <li>搜索：索引 + 流式结果 + 取消 + 遵循 .gitignore</li>
+          <li>大文档虚拟化 / 可配阈值自动源码模式</li>
+          <li>长任务进度与取消（导出、替换）</li>
+          <li>性能埋点与基线报告</li>
+        </ul>
+      </div>
+      <div class="rel r3">
+        <span class="badge b-p2">v1.3</span>
+        <h4>教</h4>
+        <p class="goal">目标：把教学场景做成别人抄不走的闭环</p>
+        <ul>
+          <li>演示模式（大纲驱动翻页讲稿）</li>
+          <li>模板变量（日期/学期/章节）</li>
+          <li>学生版 / 教师版分离导出</li>
+          <li>课件结构体检升级</li>
+          <li>跳转列表 + 全局速记 + 悬浮小窗</li>
+        </ul>
+      </div>
+      <div class="rel r4">
+        <span class="badge b-p3">v2.0</span>
+        <h4>库</h4>
+        <p class="goal">目标：从单文档编辑器走向个人知识工作台（谨慎投入）</p>
+        <ul>
+          <li>多根目录工作区</li>
+          <li>轻量标签 + [[文件]] 跳转与反向链接</li>
+          <li>可配置同步适配器（WebDAV/S3）</li>
+          <li>配置与片段库导入导出</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3>本周就能做完的 7 件小事（立竿见影）</h3>
+    <div class="tw">
+      <table>
+        <thead><tr><th>#</th><th>事项</th><th>收益</th><th>预估</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>接入 DOMPurify 清洗 HTML 块</td><td>堵住唯一明确的安全缺口</td><td>半天</td></tr>
+          <tr><td>2</td><td>release 构建移除 devtools、收紧 CSP</td><td>减小攻击面与体积</td><td>10 分钟</td></tr>
+          <tr><td>3</td><td>引入窗口状态记忆</td><td>立刻提升「专业感」</td><td>1 小时</td></tr>
+          <tr><td>4</td><td>关闭到托盘首次气泡提示 + 可在设置关闭该行为</td><td>消除最大的使用困惑</td><td>1 小时</td></tr>
+          <tr><td>5</td><td>Ctrl+0 重置缩放 + 状态栏缩放百分比</td><td>补齐缩放入口</td><td>1 小时</td></tr>
+          <tr><td>6</td><td>命令面板补全（EPUB、新建、打开文件夹、每日笔记）+ Ctrl+Shift+T 重新打开</td><td>减少功能「藏得太深」</td><td>半天</td></tr>
+          <tr><td>7</td><td>关于页：版本、更新日志、复制诊断信息</td><td>建立反馈通道</td><td>半天</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= 7 指标 ================= -->
+  <section>
+    <h2><span class="idx">07</span>怎么判断做对了：度量指标</h2>
+    <div class="tw">
+      <table>
+        <thead><tr><th>类别</th><th>指标</th><th>为什么看它</th><th>目标方向</th></tr></thead>
+        <tbody>
+          <tr><td rowspan="1"><b>北极星</b></td><td>周活跃写作天数（有实际编辑行为的自然日）</td><td>写作工具的价值只在「持续使用」中体现</td><td>持续上升</td></tr>
+          <tr><td rowspan="3"><b>信任</b></td><td>自动保存失败率</td><td>直接对应数据风险</td><td>趋近 0，且 100% 有显式提示</td></tr>
+          <tr><td>异常退出率（崩溃 / 启动）</td><td>稳定性底线</td><td>下降并可视化</td></tr>
+          <tr><td>历史回滚使用率</td><td>衡量「敢改」的底气，也验证功能是否被用</td><td>稳步出现使用</td></tr>
+          <tr><td rowspan="2"><b>效率</b></td><td>打开 10MB 文档耗时 / 1000 篇搜索 P95</td><td>规模化的天花板</td><td>打开 &lt;1s，搜索 &lt;2s</td></tr>
+          <tr><td>导出成功率（按格式）</td><td>导出是核心卖点，失败即口碑损失</td><td>&gt;99%</td></tr>
+          <tr><td rowspan="2"><b>产品化</b></td><td>版本更新覆盖率（升级到最新版的比例）</td><td>没有更新通道就没有迭代闭环</td><td>&gt;80%</td></tr>
+          <tr><td>首次引导完成率 / 首次成功导出率</td><td>衡量新用户能否「用得起来」</td><td>持续提升</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note warn">
+      <b>埋点原则：</b>本地记录为主、可一键查看与清空、不上传原始文档内容。作为自研工具，先做「本地可见的诊断信息」比做「远程统计」更合适，也更容易让用户接受。
+    </div>
+  </section>
+
+  <!-- ================= 8 附录 ================= -->
+  <section>
+    <h2><span class="idx">08</span>附录：未闭环问题与验证方法</h2>
+    <p class="lead">上一轮反馈的三个现象尚未完成根因闭环，建议以「先补可观测性、再复现」的方式收尾，而不是继续猜。</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>现象</th><th>当前状态</th><th>建议的定位方法</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>源码模式不显示源码</b></td>
+            <td>在 Chromium（dev 与打包预览）下均无法复现，疑似 WebView2 环境特有</td>
+            <td>在 WebView2 真实环境中打开控制台观察 CodeMirror 挂载与异常；同时记录源码模式切换时的 DOM 结构与错误日志。若确认为环境问题，加入降级兜底（挂载失败时回退为纯文本 textarea + 提示）</td>
+          </tr>
+          <tr>
+            <td><b>课件中 HTML 网络图片不加载</b></td>
+            <td>代码路径正确（http/https 原样透传、已设 no-referrer），CSP 的 img-src 亦放行。仅在打包环境出现</td>
+            <td>在打包环境用「图片加载失败」占位类（<code>mditor-html-img-error</code>）统计失败率；用开发者工具查看具体请求的 Network 状态与被拦截原因（CSP / 防盗链 / 混合内容）。重点验证第三方图床对空 Referer 的策略</td>
+          </tr>
+          <tr>
+            <td><b>WebView2 停止工作</b></td>
+            <td>高度怀疑与调试端口参数、多实例争用同一用户数据目录有关，需排除环境因素</td>
+            <td>确认是否由本地调试注入的浏览器参数造成；清理残留 WebView2 进程后以正常方式启动验证；长期方案是为应用固定独立用户数据目录并在崩溃时记录事件日志</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <b>方法论提醒：</b>这三个问题的共同点是「只在打包环境出现」。这恰好印证了本报告的核心判断——<b>缺少运行时可观测性，是这个项目当前最大的工程债</b>。补上日志与错误捕获之后，同类问题都会从「猜」变成「查」。
+    </div>
+  </section>
+
+  <footer>
+    MyMdEdit 产品诊断与优化路线图 · 基于 v1.0.74 代码实证盘点生成 · 2026-09-16<br>
+    结论口径：只依据仓库中可验证的实现（前端 79 个源文件、Rust 侧 11 个模块、打包配置）与功能清单，未采信任何未落地的设想。
+  </footer>
+
+</div>
+</body>
+</html>

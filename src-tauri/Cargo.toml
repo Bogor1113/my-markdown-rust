@@ -1,0 +1,57 @@
+[package]
+name = "mymdedit"
+version = "1.0.87"
+description = "波哥自研的 Markdown 桌面编辑器"
+authors = ["冬月十三"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "mymdedit_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+# release 打包后从内嵌资源加载前端（tauri://localhost），
+# 缺这俩时会退回到 devUrl(http://localhost:1420) 加载，打包后必然白屏/空白
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "protocol-asset", "devtools", "custom-protocol"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+notify = "8"
+# 图片/二进制经 IPC 传输时用 base64 载荷：
+# 直接传 Vec<u8> 会被 JSON 序列化成数字数组（5MB 图片 ≈ 500 万个整数），
+# 内存与耗时放大数十倍。base64 只膨胀 33%，且 JS 侧 atob 即可还原。
+base64 = "0.22"
+# PDF 导出后处理：解析打印产物、注入大纲（书签树），标题定位 + /Outlines 写入
+lopdf = "0.34"
+# PDF 导出：WebView2 COM 打印接口（与 wry 同源，版本与锁文件一致）
+webview2-com = "0.38"
+# PDF 导出：WebView2 COM（与 webview2-com 0.38 同源，统一到锁文件版本）
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
+docx-rs = "0.4.22"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+windows-sys = { version = "0.59", features = ["Win32_UI_Shell"] }
+
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

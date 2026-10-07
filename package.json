@@ -1,0 +1,48 @@
+{
+  "name": "mymdedit",
+  "private": true,
+  "version": "1.0.87",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@milkdown/kit": "^7.22.0",
+    "@milkdown/plugin-highlight": "^7.22.0",
+    "@milkdown/plugin-math": "7.5.9",
+    "@milkdown/plugin-upload": "7.22.0",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
+    "@tauri-apps/plugin-opener": "^2",
+    "docx": "^9.7.1",
+    "highlight.js": "11.11.1",
+    "katex": "^0.18.4",
+    "lowlight": "^3.3.0",
+    "mermaid": "^11.17.2",
+    "prosemirror-schema-list": "^1.5.1",
+    "prosemirror-search": "^1.1.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "remark-footnotes": "^5.0.0",
+    "remark-frontmatter": "^5.0.0",
+    "remark-math": "^6.0.0",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2",
+    "@types/mdast": "4.0.4",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^6.0.2",
+    "markdownlint": "^0.41.1",
+    "mdast-util-to-markdown": "^2.1.2",
+    "remark-stringify": "11.0.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~6.0.3",
+    "vite": "^8.0.16"
+  }
+}

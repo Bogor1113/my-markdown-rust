@@ -1,0 +1,2905 @@
+@import "tailwindcss";
+
+/* ── App Shell ── */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Theme Variables ── */
+/* 默认暗黑主题 */
+:root {
+  --color-bg: #0e0f14;
+  --color-bg-sidebar: #15161e;
+  --color-bg-toolbar: #15161e;
+  --color-bg-tab: #1c1d27;
+  --color-bg-tab-active: #0e0f14;
+  --color-border: #262836;
+  --color-border-bright: #3a3d52;
+  --color-text: #d4d6e0;
+  --color-text-secondary: #8b8da0;
+  --color-text-dim: #525468;
+  --color-accent: #5b9dff;
+  --color-accent-hover: #7db5ff;
+  --color-accent-glow: rgba(91, 157, 255, 0.12);
+  --color-dirty: #fbbf24;
+  /* 磨砂噪点纹理（feTurbulence）：叠加在玻璃面板上模拟真实颗粒感 */
+  --md-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+}
+
+/* 亮色 / 纸墨：噪点减半，避免白底上像灰尘 */
+:root[data-theme='light'],
+:root[data-theme='paper'] {
+  --md-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.015'/%3E%3C/svg%3E");
+}
+
+/* 亮色主题（用户切换后应用） */
+:root[data-theme='light'], :root[data-theme='paper'] {
+  --color-bg: #ffffff;
+  --color-bg-sidebar: #f6f7fa;
+  --color-bg-toolbar: #f6f7fa;
+  --color-bg-tab: #eef0f4;
+  --color-bg-tab-active: #ffffff;
+  --color-border: #dde0e8;
+  --color-border-bright: #c8ccd6;
+  --color-text: #1a1d24;
+  --color-text-secondary: #6b7280;
+  --color-text-dim: #adb1bd;
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-glow: rgba(37, 99, 235, 0.10);
+  --color-dirty: #f59f00;
+}
+
+/* ── 纸墨（暖纸张护眼浅色） ── */
+:root[data-theme='paper'] {
+  --color-bg: #faf6ef;
+  --color-bg-sidebar: #efe9dc;
+  --color-bg-toolbar: #efe9dc;
+  --color-bg-tab: #e7e0cf;
+  --color-bg-tab-active: #faf6ef;
+  --color-border: #d9cfb8;
+  --color-border-bright: #c9bca0;
+  --color-text: #3d3b37;
+  --color-text-secondary: #7a7265;
+  --color-text-dim: #aca28e;
+  --color-accent: #b56430;
+  --color-accent-hover: #c77440;
+  --color-accent-glow: rgba(181, 100, 48, 0.10);
+  --color-dirty: #b58900;
+}
+
+/* ── 午夜蓝（深青静谧） ── */
+:root[data-theme='midnight'] {
+  --color-bg: #080c16;
+  --color-bg-sidebar: #0e1322;
+  --color-bg-toolbar: #0e1322;
+  --color-bg-tab: #16203a;
+  --color-bg-tab-active: #080c16;
+  --color-border: #1f2c4a;
+  --color-border-bright: #2d4070;
+  --color-text: #c5cee4;
+  --color-text-secondary: #8492b8;
+  --color-text-dim: #4e5d85;
+  --color-accent: #6ea8ff;
+  --color-accent-hover: #8fbfff;
+  --color-accent-glow: rgba(110, 168, 255, 0.14);
+  --color-dirty: #f0b429;
+}
+
+/* ── 日暮（暖棕暗金） ── */
+:root[data-theme='dusk'] {
+  --color-bg: #161310;
+  --color-bg-sidebar: #1f1b16;
+  --color-bg-toolbar: #1f1b16;
+  --color-bg-tab: #2a241e;
+  --color-bg-tab-active: #161310;
+  --color-border: #38302a;
+  --color-border-bright: #4d4036;
+  --color-text: #e8ddd0;
+  --color-text-secondary: #a89a8c;
+  --color-text-dim: #6a6258;
+  --color-accent: #e6a85a;
+  --color-accent-hover: #f0b970;
+  --color-accent-glow: rgba(230, 168, 90, 0.12);
+  --color-dirty: #f0a30a;
+}
+
+/* ── 石墨（中性炭黑、克制冷调） ── */
+:root[data-theme='graphite'] {
+  --color-bg: #0f1116;
+  --color-bg-sidebar: #171920;
+  --color-bg-toolbar: #171920;
+  --color-bg-tab: #21242d;
+  --color-bg-tab-active: #0f1116;
+  --color-border: #2a2e3a;
+  --color-border-bright: #3d4252;
+  --color-text: #d8dce4;
+  --color-text-secondary: #969ca8;
+  --color-text-dim: #535a68;
+  --color-accent: #7aa2f7;
+  --color-accent-hover: #9bb8fb;
+  --color-accent-glow: rgba(122, 162, 247, 0.12);
+  --color-dirty: #e0c07d;
+}
+
+/* ── Scrollbar ── */
+/* 现代圆角半透明滑块：透明轨道 + 内缩圆角滑块，悬停时变亮 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-text-dim) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-text-dim);
+  border-radius: 999px;
+  /* 2px 透明边框 + padding-box 让 10px 滑块视觉上只剩 6px，更轻盈 */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.15s ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:active {
+  background: var(--color-accent);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ── UI Polish：选区 / 聚焦环 / 交互过渡（纯合成层，零内存开销）── */
+/* 主题色半透明选区，替代系统默认蓝 */
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 28%, transparent);
+  color: var(--color-text);
+}
+/* 键盘聚焦时显示主题色描边（仅 focus-visible，不影响鼠标点击） */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
+  outline-offset: 1px;
+}
+/* 去掉鼠标点击按钮等元素后的默认 focus 黑框 */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ── Tab 标签：box-shadow 纳入过渡，切换时主题色底线丝滑出现 ── */
+.mditor-tab {
+  transition: background-color 0.15s ease, color 0.15s ease,
+    border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.mditor-tab:hover {
+  color: var(--color-text);
+}
+
+/* ── 侧边栏文件树：激活文件高亮 + 左侧主题色竖条 + 辉光 ── */
+.mditor-tree-active {
+  background: color-mix(in srgb, var(--color-accent) 14%, var(--color-bg-sidebar));
+  color: var(--color-accent);
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+.mditor-tree-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--color-accent);
+  box-shadow: 0 0 8px 1px var(--color-accent-glow);
+}
+
+/* ── 工具栏分组分隔线：半透明、略高、圆角，更精致 ── */
+.mditor-tb-sep {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-border) 70%, transparent);
+  flex-shrink: 0;
+}
+
+/* ── Tab Bar Scrollbar（默认隐藏、悬停时显示的细滚动条）── */
+.tabbar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.tabbar-scroll:hover {
+  scrollbar-color: var(--color-text-dim) transparent;
+}
+.tabbar-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+.tabbar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.tabbar-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  transition: background-color 0.15s ease;
+}
+/* 悬停标签栏时才显示滚动条滑块，平时完全隐藏不占视觉 */
+.tabbar-scroll:hover::-webkit-scrollbar-thumb {
+  background: var(--color-text-dim);
+}
+.tabbar-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}
+
+/* ── Tech-look enhancements: gradients, glow, depth ── */
+/* Toolbar subtle top-down gradient for depth */
+.mditor-toolbar {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--color-bg-toolbar) 100%, transparent),
+    color-mix(in srgb, var(--color-bg-toolbar) 92%, var(--color-bg))
+  );
+  border-bottom: 1px solid var(--color-border);
+  /* 窗口过窄时允许横向滚动，而不是把按钮挤到右侧大纲上 */
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.mditor-toolbar::-webkit-scrollbar {
+  height: 3px;
+}
+.mditor-toolbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.mditor-toolbar::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 999px;
+}
+/* Sidebar subtle gradient for depth */
+.mditor-sidebar {
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--color-bg-sidebar) 100%, transparent),
+    color-mix(in srgb, var(--color-bg-sidebar) 95%, var(--color-bg))
+  );
+}
+/* Enhanced focus glow: accent-colored ring with soft glow */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 60%, transparent);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px var(--color-accent-glow);
+}
+/* Scrollbar accent-tinted on hover for tech feel */
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-text-dim) 85%, var(--color-accent));
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-text-secondary) 80%, var(--color-accent));
+}
+/* ── Milkdown ProseMirror Overrides ── */
+.milkdown {
+  padding: 0 !important;
+}
+
+/* 内部容器（Milkdown 创建）撑满高度：否则 .ProseMirror 的 min-height:100%
+   相对 auto 高度的父级不生效，内容下方的空白区域不在 view.dom 内，
+   点击空白处 posAtCoords 返回 null，光标无法定位、无法输入。
+   撑满后 .ProseMirror 覆盖整个编辑区，任意点击都能放光标。*/
+.milkdown > .milkdown {
+  height: 100%;
+}
+
+.ProseMirror {
+  min-height: 100%;
+  padding: 24px 32px;
+  outline: none;
+  /* 编辑器字号：由设置里的字号滑杆写入 --editor-font-size（默认 15px） */
+  font-size: var(--editor-font-size, 15px);
+  line-height: 1.7;
+  color: var(--color-text);
+  /* 与 prosemirror.css 上游一致：修复部分平台光标定位/换行行为 */
+  white-space: pre-wrap;
+  counter-reset: math-counter;
+}
+
+/* 大文档虚拟化：只有文档顶层块数达到阈值（.milkdown-virtualized 类由
+   MilkdownEditor.applyVirtualization 按 doc.childCount ≥ 3000 动态切换）时才启用
+   content-visibility:auto —— 浏览器跳过屏幕外内容的布局、绘制与位图内存，
+   是把「1MB 文档 + 数万 DOM 节点全量渲染卡死」降为「只渲染视口内几十个块」的关键。
+
+   为什么小文档不启用：content-visibility 用 contain-intrinsic-size 的估算高度
+   占位，块滚入视口真实渲染后 scrollHeight 会变化，估算越离谱偏离越大，快速
+   拖动滚动条时滑块会脱离鼠标位置。小文档全量渲染后滚动高度稳定，滚动条完全
+   跟手；只有内容多到渲染本身成为主要成本时才牺牲这一体验换性能。
+   contain-intrinsic-size 的 auto 前缀让浏览器记住元素上次渲染的真实高度，
+   避免滚动条来回跳动；未渲染过的元素用下方的兜底估算。 */
+.milkdown-virtualized .ProseMirror > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3em;
+}
+/* 代码块/表格/HTML 块等大块的兜底估算高度给足，减少初次滚入时的跳动。
+   保守偏高是安全的：一旦真实渲染，auto 记忆真实高度，后续不再按估算。 */
+.milkdown-virtualized .ProseMirror > pre,
+.milkdown-virtualized .ProseMirror > table,
+.milkdown-virtualized .ProseMirror > .mditor-html-block,
+.milkdown-virtualized .ProseMirror > .katex-block {
+  contain-intrinsic-size: auto 16em;
+}
+
+/* 源码模式（CodeMirror）与所见即所得模式共用同一字号设置 */
+.code-editor .cm-content {
+  font-size: var(--editor-font-size, 15px);
+}
+
+.ProseMirror h1 { font-size: 1.75rem; font-weight: 700; margin: 1.5em 0 0.5em; border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 22%, transparent); padding-bottom: 0.3em; }
+.ProseMirror h2 { font-size: 1.4rem; font-weight: 600; margin: 1.3em 0 0.4em; border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent); padding-bottom: 0.2em; }
+.ProseMirror h3 { font-size: 1.15rem; font-weight: 600; margin: 1.1em 0 0.3em; }
+
+/* ── Heading Auto-Numbering ── */
+html[data-heading-numbering='true'] .ProseMirror {
+  counter-reset: h1;
+}
+html[data-heading-numbering='true'] .ProseMirror h1 {
+  counter-increment: h1;
+  counter-reset: h2;
+}
+html[data-heading-numbering='true'] .ProseMirror h1::before {
+  content: counter(h1) ". ";
+  color: var(--color-accent);
+  font-weight: 700;
+}
+html[data-heading-numbering='true'] .ProseMirror h2 {
+  counter-increment: h2;
+  counter-reset: h3;
+}
+html[data-heading-numbering='true'] .ProseMirror h2::before {
+  content: counter(h1) "." counter(h2) " ";
+  color: var(--color-accent);
+  font-weight: 600;
+}
+html[data-heading-numbering='true'] .ProseMirror h3 {
+  counter-increment: h3;
+  counter-reset: h4;
+}
+html[data-heading-numbering='true'] .ProseMirror h3::before {
+  content: counter(h1) "." counter(h2) "." counter(h3) " ";
+  color: var(--color-accent);
+  font-weight: 600;
+}
+html[data-heading-numbering='true'] .ProseMirror h4 {
+  counter-increment: h4;
+  counter-reset: h5;
+}
+html[data-heading-numbering='true'] .ProseMirror h4::before {
+  content: counter(h1) "." counter(h2) "." counter(h3) "." counter(h4) " ";
+  color: var(--color-accent);
+}
+html[data-heading-numbering='true'] .ProseMirror h5 {
+  counter-increment: h5;
+  counter-reset: h6;
+}
+html[data-heading-numbering='true'] .ProseMirror h5::before {
+  content: counter(h1) "." counter(h2) "." counter(h3) "." counter(h4) "." counter(h5) " ";
+  color: var(--color-accent);
+}
+html[data-heading-numbering='true'] .ProseMirror h6::before {
+  content: counter(h1) "." counter(h2) "." counter(h3) "." counter(h4) "." counter(h5) "." counter(h6) " ";
+  color: var(--color-accent);
+}
+.ProseMirror p { margin: 0.5em 0; }
+.ProseMirror ul { padding-left: 1.5em; list-style: disc; }
+.ProseMirror ul ul { list-style: circle; }
+.ProseMirror ul ul ul { list-style: square; }
+.ProseMirror ol { padding-left: 1.5em; list-style: decimal; }
+.ProseMirror ol ol { list-style: lower-alpha; }
+.ProseMirror ol ol ol { list-style: lower-roman; }
+.ProseMirror li { margin: 0.2em 0; }
+.ProseMirror blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 1em;
+  margin: 0.8em 0;
+  color: var(--color-text-secondary);
+  background: linear-gradient(to right, color-mix(in srgb, var(--color-accent) 6%, transparent), transparent 70%);
+  border-radius: 0 4px 4px 0;
+}
+/* GitHub 风格提醒块：由 callout 插件把 [!KIND] 语法转 class */
+.ProseMirror blockquote.callout {
+  --callout-color: var(--color-accent);
+  border-left-width: 4px;
+  border-left-color: var(--callout-color);
+  background: color-mix(in srgb, var(--callout-color) 12%, transparent);
+  border-radius: 6px;
+  padding: 0.6em 1em;
+  color: var(--color-text);
+}
+.ProseMirror blockquote.callout::before {
+  content: attr(data-callout);
+  display: block;
+  font-weight: 700;
+  font-size: 0.8em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--callout-color);
+  margin-bottom: 0.2em;
+}
+.ProseMirror blockquote.callout-note { --callout-color: #4493f8; }
+.ProseMirror blockquote.callout-tip { --callout-color: #3fb950; }
+.ProseMirror blockquote.callout-important { --callout-color: #8957e5; }
+.ProseMirror blockquote.callout-warning { --callout-color: #d29922; }
+.ProseMirror blockquote.callout-caution { --callout-color: #f85149; }
+/* 任务列表复选框可点击 */
+.ProseMirror [data-checked] { cursor: pointer; }
+.ProseMirror code {
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg-tab-active));
+  border: 1px solid color-mix(in srgb, var(--color-accent) 18%, var(--color-border));
+  border-radius: 3px;
+  padding: 0.15em 0.4em;
+  font-size: 0.9em;
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+}
+.ProseMirror pre {
+  background: color-mix(in srgb, var(--color-bg-sidebar) 95%, var(--color-bg));
+  border: 1px solid var(--color-border);
+  border-left: 3px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  border-radius: 6px;
+  padding: 1em;
+  overflow-x: hidden;
+  /* 代码块随容器宽度自适应折行，无需横向滚动条 */
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.ProseMirror pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+/* 本地图片节点视图：随容器自适应、可拖拽、选中高亮、加载失败占位 */
+/* 图片独占段落时自动居中（inline-block 在 text-align:center 段落里居中） */
+.ProseMirror p:has(.mditor-image-wrap):not(:has(> :not(.mditor-image-wrap):not(.mditor-resize-handle))):not(:has(img)) {
+  text-align: center;
+}
+.ProseMirror p:has(> .mditor-image-wrap) {
+  text-align: center;
+}
+.mditor-image-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  vertical-align: middle;
+}
+.mditor-image-wrap .mditor-image {
+  display: block;
+  max-width: 100%;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease;
+}
+.mditor-image-wrap .mditor-image:hover {
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+/* 选中：描边 + 四角缩放手柄 */
+.mditor-image-wrap.mditor-image-selected .mditor-image {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.mditor-image-wrap .mditor-resize-handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--color-accent);
+  background: #fff;
+  border-radius: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 6;
+}
+.mditor-image-wrap.mditor-image-selected .mditor-resize-handle,
+.mditor-image-wrap:hover .mditor-resize-handle {
+  opacity: 1;
+  pointer-events: auto;
+}
+.mditor-resize-handle.nw { left: -5px; top: -5px; cursor: nwse-resize; }
+.mditor-resize-handle.ne { right: -5px; top: -5px; cursor: nesw-resize; }
+.mditor-resize-handle.sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
+.mditor-resize-handle.se { right: -5px; bottom: -5px; cursor: nwse-resize; }
+/* 拖拽缩放中：禁用文本选择，跟随角标方向的光标由 body 内联样式控制 */
+body.mditor-resizing {
+  user-select: none;
+}
+/* 自由拉伸（Shift）松手后的缩放结果选择弹窗 */
+.mditor-resize-choice {
+  position: fixed;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 170px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-toolbar);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  font-size: 12.5px;
+  user-select: none;
+}
+.mditor-resize-choice-title {
+  padding: 2px 6px 4px;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+}
+.mditor-resize-choice-btn {
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 12.5px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.mditor-resize-choice-btn:hover {
+  background: var(--color-border);
+  border-color: var(--color-accent);
+}
+.mditor-resize-choice-btn.primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.mditor-resize-choice-btn.primary:hover {
+  opacity: 0.9;
+}
+.mditor-resize-choice-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+/* 加载失败占位 */
+.mditor-image-wrap .mditor-image.mditor-image-error {
+  min-width: 96px;
+  min-height: 56px;
+  background: var(--color-bg-tab);
+  outline: 1px dashed var(--color-text-dim);
+  outline-offset: 2px;
+}
+.ProseMirror a { color: var(--color-accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--color-accent) 40%, transparent); transition: color 0.15s ease, text-decoration-color 0.15s ease; }
+.ProseMirror a:hover { color: var(--color-accent-hover); text-decoration-color: var(--color-accent-hover); }
+.ProseMirror hr { border: none; height: 1px; background: linear-gradient(to right, transparent, var(--color-border) 20%, var(--color-border) 80%, transparent); margin: 1.5em 0; }
+.ProseMirror table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.ProseMirror th,
+.ProseMirror td {
+  border: 1px solid var(--color-border);
+  padding: 0.4em 0.6em;
+  text-align: left;
+  min-width: 60px;
+  position: relative;
+}
+.ProseMirror th { background: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg-sidebar)); font-weight: 600; color: var(--color-text); }
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--color-text-dim);
+  opacity: 0.6;
+  font-weight: 300;
+  pointer-events: none;
+  height: 0;
+  transition: opacity 0.2s ease;
+}
+
+/* ── 代码块语法高亮（暗黑，默认） ── */
+.ProseMirror pre code .hljs-keyword,
+.ProseMirror pre code .hljs-selector-tag,
+.ProseMirror pre code .hljs-literal { color: #c678dd; }
+.ProseMirror pre code .hljs-string,
+.ProseMirror pre code .hljs-regexp,
+.ProseMirror pre code .hljs-addition { color: #98c379; }
+.ProseMirror pre code .hljs-comment,
+.ProseMirror pre code .hljs-quote,
+.ProseMirror pre code .hljs-meta { color: #5c6370; font-style: italic; }
+.ProseMirror pre code .hljs-number,
+.ProseMirror pre code .hljs-symbol,
+.ProseMirror pre code .hljs-bullet,
+.ProseMirror pre code .hljs-link { color: #d19a66; }
+.ProseMirror pre code .hljs-title,
+.ProseMirror pre code .hljs-section { color: #61afef; }
+.ProseMirror pre code .hljs-built_in,
+.ProseMirror pre code .hljs-type,
+.ProseMirror pre code .hljs-attr,
+.ProseMirror pre code .hljs-attribute,
+.ProseMirror pre code .hljs-variable,
+.ProseMirror pre code .hljs-template-variable,
+.ProseMirror pre code .hljs-params { color: #e06c75; }
+.ProseMirror pre code .hljs-function .hljs-title { color: #61afef; }
+.ProseMirror pre code .hljs-class .hljs-title { color: #e5c07b; }
+.ProseMirror pre code .hljs-tag,
+.ProseMirror pre code .hljs-name,
+.ProseMirror pre code .hljs-selector-id,
+.ProseMirror pre code .hljs-selector-class,
+.ProseMirror pre code .hljs-deletion { color: #e06c75; }
+.ProseMirror pre code .hljs-emphasis { font-style: italic; }
+.ProseMirror pre code .hljs-strong { font-weight: bold; }
+.ProseMirror pre code .hljs-operator,
+.ProseMirror pre code .hljs-punctuation { color: #abb2bf; }
+
+/* 代码块语法高亮（亮色） */
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-keyword,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-selector-tag,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-literal { color: #d73a49; }
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-string,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-regexp,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-addition { color: #032f62; }
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-comment,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-quote { color: #6a737d; font-style: italic; }
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-number,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-symbol,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-bullet,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-link { color: #005cc5; }
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-title,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-section { color: #6f42c1; }
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-built_in,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-type,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-attr,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-attribute,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-variable,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-template-variable,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-params { color: #e36209; }
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-function .hljs-title { color: #6f42c1; }
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-class .hljs-title { color: #22863a; }
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-tag,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-name,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-selector-id,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-selector-class,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-deletion { color: #e36209; }
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-operator,
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror pre code .hljs-punctuation { color: #24292e; }
+
+/* ── 右键菜单 ── */
+.mditor-context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 200px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-toolbar);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  user-select: none;
+  font-size: 13px;
+}
+.mditor-menu-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mditor-menu-item:hover {
+  background: var(--color-accent);
+  color: #fff;
+}
+.mditor-menu-item.disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+.mditor-menu-icon {
+  width: 20px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+.mditor-menu-label { flex: 1; }
+.mditor-menu-shortcut {
+  font-size: 11px;
+  opacity: 0.6;
+}
+.mditor-menu-arrow { font-size: 14px; opacity: 0.7; }
+.mditor-menu-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--color-border);
+}
+.mditor-submenu {
+  position: absolute;
+  left: 100%;
+  top: -4px;
+  min-width: 180px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-toolbar);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  display: none;
+}
+.mditor-menu-item:hover > .mditor-submenu { display: block; }
+
+/* ── 自绘弹窗（替换原生 prompt）── */
+.mditor-dialog-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+.mditor-dialog {
+  width: min(400px, 84vw);
+  padding: 18px 20px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-toolbar);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  animation: mditor-dialog-in 0.15s ease-out;
+}
+@keyframes mditor-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.mditor-dialog-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 6px;
+}
+.mditor-dialog-message {
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+  margin-bottom: 12px;
+}
+.mditor-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mditor-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mditor-dialog-label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.mditor-dialog-input {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+  outline: none;
+}
+.mditor-dialog-input:focus {
+  border-color: var(--color-accent);
+}
+.mditor-dialog-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mditor-dialog-input-row .mditor-dialog-input {
+  flex: 1;
+}
+.mditor-dialog-input.error {
+  border-color: #e5484d;
+}
+.mditor-dialog-error {
+  font-size: 11.5px;
+  color: #e5484d;
+}
+.mditor-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.mditor-dialog-btn {
+  padding: 5px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.mditor-dialog-btn:hover {
+  background: var(--color-border);
+}
+.mditor-dialog-btn.primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.mditor-dialog-btn.primary:hover {
+  opacity: 0.9;
+}
+/* 危险操作（删除等）确认按钮 */
+.mditor-dialog-btn.primary.danger {
+  background: #e5484d;
+  border-color: #e5484d;
+}
+.mditor-dialog-btn.primary.danger:hover {
+  background: #d6343a;
+  border-color: #d6343a;
+}
+
+/* ── SVG 源码编辑弹窗（单击图片后弹出居中编辑对话框） ── */
+.mditor-svg-source-mask {
+  align-items: center;
+  padding: 24px;
+}
+.mditor-svg-source {
+  width: min(920px, 94vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg-toolbar);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  animation: mditor-dialog-in 0.15s ease-out;
+}
+.mditor-svg-source-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+.mditor-svg-source-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text);
+  flex-shrink: 0;
+}
+.mditor-svg-source-hint {
+  font-size: 12px;
+  color: var(--color-text-dim);
+  flex-shrink: 0;
+}
+.mditor-svg-source-warn {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: #e5484d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+.mditor-svg-source-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.mditor-svg-source-body {
+  display: flex;
+  height: min(62vh, 540px);
+  min-height: 260px;
+}
+.mditor-svg-source-code {
+  flex: 1 1 55%;
+  min-width: 0;
+  height: 100%;
+  resize: none;
+  padding: 10px 12px;
+  border: none;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre;
+  outline: none;
+  box-sizing: border-box;
+}
+.mditor-svg-source-preview {
+  flex: 1 1 45%;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  overflow: auto;
+  background: var(--color-bg);
+  background-image: linear-gradient(45deg, var(--color-border) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--color-border) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--color-border) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--color-border) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-color: var(--color-bg-alt);
+}
+.mditor-svg-source-preview img {
+  max-width: 100%;
+  max-height: 100%;
+}
+.mditor-svg-source-preview-error {
+  position: relative;
+}
+.mditor-svg-source-preview-error::after {
+  content: "SVG 渲染失败";
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  font-size: 12px;
+  color: #e5484d;
+  background: var(--color-bg-toolbar);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* ── 代码块语言选择器 ── */
+.mditor-lang-picker {
+  position: fixed;
+  z-index: 1001;
+  width: 220px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-toolbar);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  font-size: 12.5px;
+  user-select: none;
+}
+.mditor-lang-picker-head {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+}
+.mditor-lang-picker-search {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+.mditor-lang-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 12px;
+  outline: none;
+  font-family: inherit;
+}
+.mditor-lang-search-input:focus {
+  border-color: var(--color-accent);
+}
+.mditor-lang-picker-list { overflow-y: auto; padding: 4px; max-height: 240px; }
+.mditor-lang-item {
+  padding: 5px 10px;
+  border-radius: 5px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+.mditor-lang-item:hover { background: var(--color-accent); color: #fff; }
+.mditor-lang-item.active { background: var(--color-accent); color: #fff; }
+.mditor-lang-item.highlight { background: var(--color-accent); color: #fff; }
+.mditor-lang-empty {
+  padding: 12px 10px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.mditor-lang-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--color-border);
+}
+
+/* ── 代码块语言徽标（右上角，位于复制按钮左侧，并列一排） ── */
+.ProseMirror pre { position: relative; }
+.ProseMirror pre {
+  padding-left: 3.5em;
+}
+.ProseMirror pre .code-gutter {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3.2em;
+  padding: 1em 0.4em 1em 0.6em;
+  text-align: right;
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: inherit;
+  line-height: inherit;
+  color: var(--color-text-secondary);
+  opacity: 0.5;
+  user-select: none;
+  border-right: 1px solid var(--color-border);
+  overflow: hidden;
+}
+.ProseMirror pre .code-gutter .line-num {
+  display: block;
+  white-space: pre;
+}
+.code-lang-badge {
+  position: absolute;
+  right: 60px;
+  top: 6px;
+  z-index: 5;
+  padding: 1px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  background: color-mix(in srgb, var(--color-bg-tab-active) 75%, transparent);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 0.15s, border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+.code-lang-badge:hover {
+  opacity: 1;
+  color: var(--color-text);
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+}
+
+/* ── 代码块一键复制按钮（右上角最右，语言徽章在它左侧）── */
+.code-copy-btn {
+  position: absolute;
+  right: 8px;
+  top: 6px;
+  z-index: 6;
+  padding: 1px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent);
+  background: color-mix(in srgb, var(--color-bg-tab-active) 75%, transparent);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 0.15s, border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+.code-copy-btn:hover {
+  opacity: 1;
+  color: var(--color-text);
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+}
+.code-copy-btn.copied {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* ── 代码文件编辑器（CodeMirror）── */
+.code-editor .cm-editor {
+  height: 100%;
+}
+.code-editor .cm-scroller {
+  overflow: auto;
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.code-editor .cm-gutters {
+  font-size: 12px;
+}
+.code-editor .cm-content {
+  padding: 16px 0;
+}
+.code-editor .cm-line {
+  padding: 0 24px;
+}
+.code-editor .cm-cursor {
+  border-left-color: var(--color-accent);
+}
+
+/* ── 查找替换框 ── */
+.mditor-findbar {
+  position: absolute;
+  right: 16px;
+  top: 12px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-toolbar);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  font-size: 12.5px;
+  user-select: none;
+}
+.mditor-findbar input {
+  width: 130px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 12.5px;
+  outline: none;
+}
+.mditor-findbar input:focus {
+  border-color: var(--color-accent);
+}
+.mditor-findbar button {
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.mditor-findbar button:hover {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+.mditor-findbar .info {
+  min-width: 52px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+}
+
+/* ── 全局轻提示 ── */
+.mditor-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 32px;
+  transform: translateX(-50%);
+  z-index: 2000;
+  max-width: 80vw;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--color-bg-tab);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  color: var(--color-text);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+  animation: mditor-toast-in 0.2s ease-out;
+}
+@keyframes mditor-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* ── 高亮标记（==text==）── */
+.ProseMirror mark {
+  background: rgba(252, 196, 25, 0.35);
+  color: inherit;
+  padding: 0 0.15em;
+  border-radius: 3px;
+}
+:root[data-theme='light'], :root[data-theme='paper'] .ProseMirror mark {
+  background: rgba(255, 213, 79, 0.5);
+}
+
+/* ── 数学公式（katex）── */
+.ProseMirror .katex-inline {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.ProseMirror .katex-block {
+  text-align: center;
+  margin: 0.8em 0;
+  padding: 0.4em 0;
+  overflow-x: auto;
+  counter-increment: math-counter;
+  position: relative;
+}
+.ProseMirror .katex-block::after {
+  content: "(" counter(math-counter) ")";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-secondary);
+  font-size: 0.95em;
+}
+.ProseMirror .katex {
+  font-size: 1.05em;
+}
+.ProseMirror .katex-error {
+  color: #d32f2f;
+  background: rgba(211, 47, 47, 0.08);
+  border-radius: 3px;
+  padding: 0.1em 0.25em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Front Matter（YAML 元数据块）── */
+.ProseMirror .frontmatter-block {
+  margin: 0 0 1.2em;
+  padding: 0.6em 1em;
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-sidebar);
+  font-family: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 0.85em;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  overflow-x: auto;
+}
+.ProseMirror .frontmatter-block pre {
+  margin: 0;
+  background: none;
+  border: none;
+  padding: 0;
+}
+.ProseMirror .frontmatter-block code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+}
+
+/* ── HTML 块（原始 HTML 渲染）── */
+.ProseMirror .mditor-html-block {
+  margin: 0.4em 0 1.2em;
+  overflow-x: auto;
+}
+.ProseMirror .mditor-html-block img {
+  max-width: 100%;
+}
+.ProseMirror .mditor-html-block img.mditor-html-img-error {
+  min-width: 120px;
+  min-height: 56px;
+  outline: 1px dashed var(--color-border);
+  background: var(--color-bg-sidebar);
+}
+.ProseMirror .mditor-html-inline img {
+  max-width: 100%;
+}
+/* HTML 块/行内里的 <svg>：单击进入编辑弹窗（指针样式提示可点击） */
+.ProseMirror .mditor-html-block svg,
+.ProseMirror .mditor-html-inline svg {
+  cursor: pointer;
+}
+/* HTML 块里的顶层 <svg>：hover 显示四角缩放手柄（与图片节点手柄风格一致） */
+.mditor-svg-wrap {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+}
+/* 含 svg 的 html 块自动居中 */
+.ProseMirror .mditor-html-block:has(.mditor-svg-wrap) {
+  text-align: center;
+}
+.mditor-svg-wrap .mditor-resize-handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--color-accent);
+  background: #fff;
+  border-radius: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 6;
+}
+.mditor-svg-wrap:hover .mditor-resize-handle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ── 专注模式（打字机居中）── */
+.typewriter-mode .milkdown .ProseMirror > :not(.typewriter-active) {
+  opacity: 0.4;
+  transition: opacity 0.25s ease;
+}
+.typewriter-mode .milkdown .ProseMirror > .typewriter-active {
+  transition: opacity 0.15s ease;
+}
+
+/* ── 状态栏 ── */
+.mditor-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  padding: 0 12px;
+  border-top: 1px solid var(--color-border);
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--color-bg-toolbar) 100%, transparent),
+    color-mix(in srgb, var(--color-bg-toolbar) 90%, var(--color-bg))
+  );
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--color-text-secondary);
+  user-select: none;
+  flex-shrink: 0;
+}
+.mditor-statusbar-left,
+.mditor-statusbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mditor-statusbar-btn {
+  padding: 1px 8px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.mditor-statusbar-btn:hover {
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+.mditor-statusbar-btn.active {
+  border-color: color-mix(in srgb, var(--color-accent) 60%, transparent);
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+/* ── 字数统计 Tooltip ── */
+.mditor-stats-tooltip {
+  position: absolute;
+  bottom: 28px;
+  left: 0;
+  z-index: 1000;
+  min-width: 220px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--color-bg-sidebar);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  font-size: 12px;
+  color: var(--color-text);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.mditor-stats-tooltip-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+.mditor-stats-grid {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px 16px;
+}
+.mditor-stats-grid span:nth-child(odd) {
+  color: var(--color-text-secondary);
+}
+.mditor-stats-grid span:nth-child(even) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 最近文件（空状态） ── */
+.mditor-recent-files {
+  max-width: 420px;
+  width: 100%;
+  padding: 0 24px;
+}
+.mditor-recent-files-title {
+  font-size: 12px;
+  color: var(--color-text-dim);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.mditor-recent-files-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.mditor-recent-file-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.mditor-recent-file-item:hover {
+  background: var(--color-border);
+}
+.mditor-recent-file-name {
+  font-size: 13px;
+  color: var(--color-text);
+  font-weight: 500;
+}
+.mditor-recent-file-path {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Search Panel ── */
+.search-panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: center;
+  padding-top: 80px;
+}
+.search-panel {
+  width: 580px;
+  max-height: 70vh;
+  background: var(--color-bg-toolbar);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.search-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 0;
+}
+.search-panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.search-panel-close {
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.search-panel-close:hover {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+.search-panel-input-wrap {
+  position: relative;
+  padding: 10px 16px;
+}
+.search-panel-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+}
+.search-panel-input:focus {
+  border-color: var(--color-accent);
+}
+.search-panel-spinner {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: search-spin 0.6s linear infinite;
+}
+@keyframes search-spin {
+  to { transform: translateY(-50%) rotate(360deg); }
+}
+.search-panel-info {
+  padding: 0 16px 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.search-panel-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 16px 12px;
+}
+.search-panel-empty {
+  text-align: center;
+  padding: 32px 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.search-panel-result {
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-bottom: 4px;
+}
+.search-panel-result:hover {
+  background: var(--color-border);
+}
+.search-panel-result-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.search-panel-result-file {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+.search-panel-result-line {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+.search-panel-result-content {
+  font-size: 13px;
+  color: var(--color-text);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+.search-match-highlight {
+  background: rgba(230, 190, 80, 0.35);
+  color: var(--color-text);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* ── 表格增强（列宽拖拽手柄 + prosemirror-tables）── */
+.ProseMirror table {
+  position: relative;
+  border-collapse: collapse;
+  width: 100%;
+  overflow: visible;
+}
+.ProseMirror table colgroup col {
+  transition: width 0.05s ease;
+}
+/* 鼠标悬停在列边缘时，编辑器整体光标变一col-resize */
+.ProseMirror.resize-cursor {
+  cursor: col-resize;
+}
+/* 表格列边缘的拖拽手柄 */
+.column-resize-handle {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize !important;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.15s;
+}
+.column-resize-handle:hover,
+.column-resize-handle:active {
+  background: var(--color-accent, #4a9eff);
+  opacity: 0.5;
+}
+/* 拖拽中高亮当前列 */
+.column-resize-dragging {
+  background: var(--color-accent, #4a9eff);
+  opacity: 0.15;
+}
+/* 表格单元格对齐 */
+.ProseMirror td[style*="text-align: center"],
+.ProseMirror th[style*="text-align: center"] {
+  text-align: center;
+}
+.ProseMirror td[style*="text-align: right"],
+.ProseMirror th[style*="text-align: right"] {
+  text-align: right;
+}
+
+/* ── Table Row/Col Drag Reorder ── */
+.table-row-drag-handle {
+  position: absolute;
+  left: -18px;
+  width: 14px;
+  height: 100%;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 5;
+}
+.table-row-drag-handle::before {
+  content: '⠿';
+  color: var(--color-text-dim);
+  font-size: 12px;
+  line-height: 1;
+}
+.table-row-drag-handle:hover {
+  opacity: 1;
+}
+.table-row-drag-handle:hover::before {
+  color: var(--color-accent);
+}
+.table-col-drag-handle {
+  position: absolute;
+  top: -14px;
+  height: 12px;
+  width: 100%;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 5;
+}
+.table-col-drag-handle::before {
+  content: '⠿';
+  color: var(--color-text-dim);
+  font-size: 11px;
+  line-height: 1;
+}
+.table-col-drag-handle:hover {
+  opacity: 1;
+}
+.table-col-drag-handle:hover::before {
+  color: var(--color-accent);
+}
+/* 表格行拖拽高亮目标行 */
+.table-row-drag-highlight {
+  background: var(--color-accent, #4a9eff) !important;
+  opacity: 0.12;
+}
+/* 表格列拖拽高亮目标列 */
+.table-col-drag-highlight {
+  background: var(--color-accent, #4a9eff) !important;
+  opacity: 0.12;
+}
+/* 拖拽中禁止选中 */
+.ProseMirror table.dragging {
+  user-select: none;
+}
+
+/* ── SettingsModal ── */
+.mditor-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 12px 0;
+}
+.mditor-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mditor-settings-label {
+  font-size: 13px;
+  color: var(--color-text);
+  flex-shrink: 0;
+}
+.mditor-settings-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mditor-settings-range {
+  width: 120px;
+  accent-color: var(--color-accent);
+}
+.mditor-settings-value {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  min-width: 36px;
+}
+
+/* 设置弹窗标签页 */
+.mditor-settings-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+.mditor-settings-tab {
+  padding: 8px 14px;
+  font-size: 13px;
+  border: none;
+  background: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.mditor-settings-tab.active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+  font-weight: 600;
+}
+.mditor-settings-hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 0 0 4px;
+}
+
+/* 快捷键列表（设置弹窗内） */
+.mditor-shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 46vh;
+  overflow: auto;
+}
+.mditor-shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+}
+.mditor-shortcut-label {
+  font-size: 13px;
+  color: var(--color-text);
+}
+.mditor-shortcut-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mditor-shortcut-reset {
+  font-size: 11px;
+  color: var(--color-accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+.mditor-shortcut-key-btn {
+  min-width: 100px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  text-align: center;
+}
+.mditor-shortcut-key-btn[data-capturing='true'] {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+.mditor-shortcut-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+/* ── Mermaid 图表 ── */
+.mermaid-container {
+  margin: 1em 0;
+  padding: 1em;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-sidebar);
+  overflow-x: auto;
+  display: flex;
+  justify-content: center;
+}
+.mermaid-container.mermaid-loading::before {
+  content: '渲染中...';
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+.mermaid-container.mermaid-rendered svg {
+  max-width: 100%;
+  height: auto;
+}
+.mermaid-error {
+  color: #e5484d;
+  font-size: 13px;
+  padding: 8px;
+}
+.mermaid-error-wrap {
+  border-color: #e5484d;
+}
+
+/* ── 可拖拽分隔条 ── */
+.mditor-resize-handle-v {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+}
+.mditor-resize-handle-v:hover {
+  background: var(--color-accent);
+}
+.mditor-resize-handle-v.dragging {
+  background: var(--color-accent);
+}
+
+/* ── 脚注 ── */
+.ProseMirror .footnote-ref {
+  font-size: 0.75em;
+  vertical-align: super;
+  color: var(--color-accent);
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 600;
+}
+.ProseMirror .footnote-ref:hover {
+  text-decoration: underline;
+}
+.ProseMirror .footnote-definition {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 1em;
+  margin: 0.5em 0;
+  color: var(--color-text-secondary);
+  font-size: 0.9em;
+}
+.ProseMirror .footnote-definition .footnote-label {
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+/* ── 跨文件替换面板 ── */
+.search-panel-replace-wrap {
+  padding: 0 16px 10px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.search-panel-replace-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+}
+.search-panel-replace-input:focus {
+  border-color: var(--color-accent);
+}
+.search-panel-replace-btns {
+  display: flex;
+  gap: 4px;
+}
+.search-panel-replace-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.search-panel-replace-btn:hover {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+.search-panel-replace-btn.primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.search-panel-replace-btn.primary:hover {
+  opacity: 0.9;
+}
+.search-panel-replace-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Tech-Gloss Premium UI（多主题自适应）
+   — 全块基于 CSS 变量 + color-mix()，dark / light / paper /
+     midnight / dusk / graphite 六套主题自动跟随。
+   — 纯表现层追加，不改动任何组件逻辑。
+   ═══════════════════════════════════════════════════════════════ */
+
+/* —— 全局画布：氛围光晕 + 极淡科技网格（玻璃面板与空状态共同透出） —— */
+body {
+  background: var(--color-bg);
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: -20%;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(44% 38% at 12% 2%, color-mix(in srgb, var(--color-accent) 30%, transparent), transparent 66%),
+    radial-gradient(30% 24% at 82% 4%, color-mix(in srgb, var(--color-accent-hover) 20%, transparent), transparent 66%),
+    radial-gradient(34% 28% at 92% 94%, color-mix(in srgb, var(--color-dirty) 9%, transparent), transparent 68%),
+    radial-gradient(28% 24% at 56% 62%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 70%);
+  /* 默认不做动画：氛围光晕保持静态（渐变色本身仍是原来的样子）。
+     这里是本项目空闲 CPU 占用的主因：该层 inset:-20% 铺满整个视口，
+     而标题栏 / 工具栏 / 状态栏 / 侧栏都叠了 backdrop-filter: blur(18~20px)，
+     背景每帧在变 → 合成器每帧都要重新采样并重算全宽高斯模糊，
+     即便「打开一个文件后不动」也会持续占用 10%+ CPU。
+     动效改为可选能力，见下方 body.atmos-animated。 */
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    var(--md-noise),
+    linear-gradient(color-mix(in srgb, var(--color-text) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--color-text) 5%, transparent) 1px, transparent 1px);
+  background-size: 120px 120px, 44px 44px, 44px 44px;
+  background-repeat: repeat, repeat, repeat;
+  -webkit-mask-image: radial-gradient(120% 100% at 50% 0%, #000 0%, transparent 78%);
+          mask-image: radial-gradient(120% 100% at 50% 0%, #000 0%, transparent 78%);
+}
+@keyframes md-atmos-breathe {
+  0%, 100% { opacity: 0.72; }
+  50%      { opacity: 1; }
+}
+@keyframes md-atmos-drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(2.6%, -1.4%, 0) scale(1.06); }
+}
+
+/* 氛围动效（可选）：仅在用户于「设置 → 背景氛围动效」显式开启时运行。
+   开启后仍受下面 body.atmos-paused 约束，窗口隐藏或失焦即暂停。 */
+body.atmos-animated::before {
+  animation:
+    md-atmos-drift 52s ease-in-out infinite alternate,
+    md-atmos-breathe 7s ease-in-out infinite;
+}
+
+/* 暂停优先级最高：窗口隐藏 / 最小化到托盘 / 失去焦点时都不驱动动画。
+   选择器比 body.atmos-animated::before 更具体，天然覆盖它，
+   因此无论动效开关处于什么状态，后台都不会空转。 */
+body.atmos-paused::before,
+body.atmos-paused.atmos-animated::before {
+  animation: none;
+}
+
+/* 应用外壳改为透明：由 body 氛围层承接底色，玻璃面板才能透出辉光 */
+#root > div.h-screen.w-screen {
+  background: transparent !important;
+}
+
+/* —— 编辑器画布的质感：近不透明底色（保证阅读），内部左上角主题色微光 —— */
+.ProseMirror {
+  background:
+    radial-gradient(120% 55% at 14% 0%, color-mix(in srgb, var(--color-accent) 6%, transparent), transparent 56%),
+    color-mix(in srgb, var(--color-bg) 96%, transparent);
+}
+
+/* —— 玻璃面板：侧栏 / 标签栏 / 工具栏 / 状态栏 —— */
+.mditor-sidebar {
+  background:
+    var(--md-noise),
+    linear-gradient(180deg, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent 90px),
+    color-mix(in srgb, var(--color-bg-sidebar) 76%, transparent);
+  background-size: 120px 120px, auto, auto;
+  backdrop-filter: blur(18px) saturate(1.35);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 8%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, #000000 22%, transparent);
+}
+.mditor-toolbar,
+.mditor-statusbar {
+  background:
+    var(--md-noise),
+    linear-gradient(180deg, color-mix(in srgb, var(--color-accent) 5%, transparent), transparent 90px),
+    color-mix(in srgb, var(--color-bg-toolbar) 76%, transparent);
+  background-size: 120px 120px, auto, auto;
+  backdrop-filter: blur(18px) saturate(1.3);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 7%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, #000000 22%, transparent);
+}
+/* TabBar 顶部：一线主题色高光，分隔玻璃层与正文 */
+.tabbar-scroll {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+
+/* —— 工具栏按钮：悬浮主题色描边 + 辉光 —— */
+.mditor-toolbar button {
+  position: relative;
+  border-radius: 7px;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.08s ease;
+}
+.mditor-toolbar button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 11%, transparent) !important;
+  color: var(--color-text) !important;
+  filter: brightness(1.12);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 34%, transparent),
+    0 0 12px -2px var(--color-accent-glow);
+}
+.mditor-toolbar button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+/* —— 激活标签：渐变曝光 + 底部主题色光带 + 顶部高光 —— */
+.mditor-tab {
+  position: relative;
+}
+.mditor-tab-active {
+  z-index: 1;
+  color: var(--color-text) !important;
+  font-weight: 500;
+  border: 1px solid var(--color-border) !important;
+  border-bottom: none !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-accent) 9%, transparent), transparent 72%),
+    var(--color-bg) !important;
+  box-shadow:
+    inset 0 -2px 0 var(--color-accent),
+    0 -2px 14px -6px color-mix(in srgb, var(--color-accent) 70%, transparent),
+    0 0 0 1px var(--color-accent-glow),
+    0 -9px 20px -12px var(--color-accent-glow) !important;
+  text-shadow: 0 0 14px var(--color-accent-glow);
+}
+.mditor-tab-active::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: -1px;
+  height: 1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent) 85%, transparent), transparent);
+}
+
+/* —— 分组标题：渐变字 + 微光 —— */
+.mditor-panel-title {
+  background: linear-gradient(120deg, var(--color-text) 32%, var(--color-accent-hover) 82%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 7px var(--color-accent-glow));
+}
+
+/* —— 主按钮：渐变 + 扫光 + 辉光 —— */
+.mditor-dialog-btn.primary,
+.mditor-resize-choice-btn.primary,
+.search-panel-replace-btn.primary,
+.mditor-primary-btn {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 65%, var(--color-bg));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-accent) 80%, #ffffff),
+    var(--color-accent) 55%,
+    color-mix(in srgb, var(--color-accent) 84%, #000000)
+  );
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  box-shadow:
+    0 4px 14px -4px color-mix(in srgb, var(--color-accent) 55%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 30%, transparent);
+  transition: transform 0.1s ease, box-shadow 0.2s ease, filter 0.2s ease, opacity 0.2s ease;
+}
+/* primary 系按钮的旧扫光（::after + left 过渡）已删除，
+   改为全站统一的 hover 流光实现（见文件末尾「流光」一节）：
+   一是不再与其他控件的动效重复，二是从 `left` 过渡改为 `transform`，不再触发重排。 */
+.mditor-dialog-btn.primary:hover,
+.mditor-resize-choice-btn.primary:hover,
+.search-panel-replace-btn.primary:hover,
+.mditor-primary-btn:hover {
+  opacity: 1;
+  filter: brightness(1.06);
+  box-shadow:
+    0 8px 22px -6px color-mix(in srgb, var(--color-accent) 62%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 34%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+.mditor-dialog-btn.primary:active,
+.mditor-resize-choice-btn.primary:active,
+.search-panel-replace-btn.primary:active,
+.mditor-primary-btn:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+/* —— 弹窗：毛玻璃 + 顶部高光线 + 辉光投影 —— */
+.mditor-dialog {
+  position: relative;
+  background:
+    var(--md-noise),
+    color-mix(in srgb, var(--color-bg-toolbar) 80%, transparent);
+  background-size: 120px 120px, auto;
+  backdrop-filter: blur(20px) saturate(1.35) brightness(1.06);
+  border-color: color-mix(in srgb, var(--color-border-bright) 70%, transparent);
+  box-shadow:
+    0 24px 60px -12px rgba(0, 0, 0, 0.55),
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 14%, transparent),
+    0 0 44px -10px var(--color-accent-glow),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 8%, transparent);
+}
+.mditor-dialog::before {
+  content: '';
+  position: absolute;
+  left: 26px;
+  right: 26px;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent) 85%, transparent), transparent);
+  pointer-events: none;
+}
+.mditor-dialog-mask {
+  background: color-mix(in srgb, #000 42%, transparent);
+  backdrop-filter: blur(6px);
+}
+/* 以 Tailwind 工具类写的弹层遮罩（bg-black/40）：统一加背景模糊 */
+[class*="bg-black/40"] {
+  background: color-mix(in srgb, #000 42%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+/* Tailwind 工具类浮窗（导出/主题下拉、片段库、校验、Front Matter 等）：
+   统一毛玻璃，随后用语义类（mditor-palette / mditor-glass-menu）覆盖细节 */
+[class*="shadow-2xl"] {
+  background:
+    var(--md-noise),
+    color-mix(in srgb, var(--color-bg) 82%, transparent);
+  background-size: 120px 120px, auto;
+  backdrop-filter: blur(18px) saturate(1.3);
+  border-color: color-mix(in srgb, var(--color-border-bright) 65%, transparent);
+  box-shadow:
+    0 24px 60px -12px rgba(0, 0, 0, 0.5),
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 9%, transparent),
+    0 0 36px -10px var(--color-accent-glow),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 7%, transparent) !important;
+}
+.mditor-glass-menu,
+[class*="shadow-xl"],
+[class*="shadow-lg"] {
+  background:
+    var(--md-noise),
+    color-mix(in srgb, var(--color-bg-toolbar) 82%, transparent);
+  background-size: 120px 120px, auto;
+  backdrop-filter: blur(18px) saturate(1.3);
+  border-color: color-mix(in srgb, var(--color-border-bright) 65%, transparent);
+  box-shadow:
+    0 16px 44px -10px rgba(0, 0, 0, 0.5),
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 9%, transparent),
+    0 0 30px -9px var(--color-accent-glow),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 7%, transparent) !important;
+}
+
+/* —— 拾取浮层（右键菜单 / 语言选择 / 查找框 / 轻提示 / 统计浮层 / 缩放开窗 / 搜索面板） —— */
+.mditor-context-menu,
+.mditor-submenu,
+.mditor-lang-picker,
+.mditor-findbar,
+.mditor-stats-tooltip,
+.mditor-resize-choice,
+.mditor-toast,
+.search-panel {
+  background:
+    var(--md-noise),
+    color-mix(in srgb, var(--color-bg-toolbar) 80%, transparent);
+  background-size: 120px 120px, auto;
+  backdrop-filter: blur(18px) saturate(1.3);
+  border-color: color-mix(in srgb, var(--color-border-bright) 65%, transparent);
+  box-shadow:
+    0 10px 34px -8px rgba(0, 0, 0, 0.5),
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 9%, transparent),
+    0 0 28px -10px var(--color-accent-glow),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 7%, transparent);
+}
+/* 菜单项 / 语言项：主题色渐变悬浮 + 辉光 */
+.mditor-menu-item:hover,
+.mditor-lang-item:hover,
+.mditor-lang-item.active,
+.mditor-lang-item.highlight {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 92%, transparent), var(--color-accent));
+  box-shadow: 0 2px 10px -3px color-mix(in srgb, var(--color-accent) 65%, transparent);
+}
+/* 搜索面板遮罩：加背景模糊 */
+.search-panel-overlay {
+  background: color-mix(in srgb, #000 42%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+/* —— 命令面板 —— */
+.mditor-palette {
+  position: relative;
+  background:
+    var(--md-noise),
+    color-mix(in srgb, var(--color-bg) 82%, transparent);
+  background-size: 120px 120px, auto;
+  backdrop-filter: blur(20px) saturate(1.35) brightness(1.06);
+  border-color: color-mix(in srgb, var(--color-border-bright) 65%, transparent);
+  box-shadow:
+    0 24px 60px -12px rgba(0, 0, 0, 0.55),
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 11%, transparent),
+    0 0 44px -10px var(--color-accent-glow),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 8%, transparent);
+}
+.mditor-palette::before {
+  content: '';
+  position: absolute;
+  left: 30px;
+  right: 30px;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent) 85%, transparent), transparent);
+  pointer-events: none;
+}
+.mditor-palette-item {
+  position: relative;
+}
+.mditor-palette-item-active {
+  background: color-mix(in srgb, var(--color-accent) 13%, transparent);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+.mditor-palette-item:hover {
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+/* —— 输入框 / 查找框：聚焦主题色边缘光圈 —— */
+.mditor-dialog-input:focus,
+.mditor-lang-search-input:focus,
+.mditor-findbar input:focus,
+.search-panel-input:focus,
+.search-panel-replace-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 16%, transparent);
+}
+
+/* —— 空状态（未打开文档）：呼吸光晕 + 渐变标题 + 最近文件悬浮 —— */
+.mditor-empty-state {
+  position: relative;
+}
+.mditor-empty-state::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 360px;
+  height: 360px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-accent) 18%, transparent), transparent 65%);
+  filter: blur(22px);
+  pointer-events: none;
+  z-index: 0;
+}
+/* 呼吸动效同样只在显式开启氛围动效时运行 */
+body.atmos-animated .mditor-empty-state::before {
+  animation: md-emptypulse 4.5s ease-in-out infinite;
+}
+.mditor-empty-state > * {
+  position: relative;
+  z-index: 1;
+}
+@keyframes md-emptypulse {
+  0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
+  50%      { opacity: 1;    transform: translate(-50%, -50%) scale(1.06); }
+}
+.mditor-empty-title p:first-child {
+  background: linear-gradient(120deg, var(--color-text) 28%, var(--color-accent-hover) 82%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 10px var(--color-accent-glow));
+  font-weight: 600;
+}
+.mditor-empty-title p:last-child {
+  color: var(--color-text-dim);
+}
+.mditor-recent-files-title {
+  letter-spacing: 0.06em;
+}
+.mditor-recent-file-item {
+  position: relative;
+  overflow: hidden;
+}
+.mditor-recent-file-item::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 22%;
+  bottom: 22%;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--color-accent);
+  box-shadow: 0 0 8px var(--color-accent-glow);
+  opacity: 0;
+  transition: opacity 0.15s ease, top 0.15s ease, bottom 0.15s ease;
+}
+.mditor-recent-file-item:hover {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+.mditor-recent-file-item:hover::before {
+  opacity: 1;
+  top: 14%;
+  bottom: 14%;
+}
+
+/* —— 侧栏空状态（未打开文件夹）：呼吸光晕 —— */
+.mditor-sidebar-empty {
+  position: relative;
+}
+.mditor-sidebar-empty::before {
+  content: '';
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  width: 230px;
+  height: 230px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--color-accent) 15%, transparent), transparent 70%);
+  filter: blur(20px);
+  pointer-events: none;
+}
+body.atmos-animated .mditor-sidebar-empty::before {
+  animation: md-emptypulse 5.5s ease-in-out infinite;
+}
+.mditor-sidebar-empty > * {
+  position: relative;
+}
+
+/* —— 状态栏按钮：激活态加辉光 —— */
+.mditor-statusbar-btn.active {
+  box-shadow: 0 0 10px -3px var(--color-accent-glow);
+}
+
+/* —— 可拖拽分隔条：默认细线可见，悬浮/拖拽时主题色辉光 —— */
+.mditor-resize-handle-v {
+  background: color-mix(in srgb, var(--color-border) 55%, transparent);
+}
+.mditor-resize-handle-v:hover,
+.mditor-resize-handle-v.dragging {
+  background: color-mix(in srgb, var(--color-accent) 85%, transparent);
+  box-shadow: 0 0 10px -2px var(--color-accent-glow);
+}
+
+/* —— 无障碍：系统开启"减少动态效果"时，关闭氛围/呼吸/扫光动画 —— */
+@media (prefers-reduced-motion: reduce) {
+  /* 原实现把动画写反了：此处曾用 animation: md-atmos-drift … 把漂移动画
+     重新打开，等于系统要求减少动效时反而更耗 CPU。现统一关掉。 */
+  body.atmos-animated::before,
+  body.atmos-animated .mditor-empty-state::before,
+  body.atmos-animated .mditor-sidebar-empty::before,
+  body::before {
+    animation: none !important;
+  }
+  /* 旧的 primary 扫光已删除；新的全站流光自带 reduced-motion 处理（见文件末尾） */
+}
+
+/* —— 自绘标题栏（tauri.conf.json 已关闭原生装饰，替代系统标题栏） —— */
+.titlebar {
+  height: 36px;
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  position: relative;
+  overflow: hidden;
+  background:
+    var(--md-noise),
+    radial-gradient(120% 280% at 4% -30%, color-mix(in srgb, var(--color-accent) 32%, transparent), transparent 55%),
+    radial-gradient(90% 240% at 96% -40%, color-mix(in srgb, var(--color-accent-hover) 24%, transparent), transparent 55%),
+    radial-gradient(70% 200% at 50% -60%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 60%),
+    linear-gradient(180deg, color-mix(in srgb, var(--color-bg-toolbar) 76%, transparent), color-mix(in srgb, var(--color-bg) 72%, transparent));
+  background-size: 120px 120px, auto, auto, auto, auto;
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 14%, transparent);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 9%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, #000000 25%, transparent);
+  user-select: none;
+  cursor: default;
+}
+
+/* 顶部玻璃高光，与标签栏 / 状态栏呼应 */
+.titlebar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 4%, color-mix(in srgb, #ffffff 22%, transparent) 50%, transparent 96%);
+  pointer-events: none;
+}
+
+.titlebar-drag {
+  flex: none;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.titlebar-logo {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  filter: drop-shadow(0 0 6px var(--color-accent-glow));
+}
+
+.titlebar-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-hover));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.titlebar-sub {
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--color-text-dim);
+}
+
+.titlebar-controls {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+}
+
+.titlebar-btn {
+  width: 44px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.titlebar-btn:hover {
+  background: var(--color-accent-glow);
+  color: var(--color-text);
+}
+.titlebar-btn:active {
+  background: color-mix(in srgb, var(--color-border) 40%, transparent);
+}
+.titlebar-btn.close:hover {
+  background: #e5484d;
+  color: #ffffff;
+}
+
+/* ============================================================
+   流光：hover 时一道高光扫过（全站可交互控件统一）
+   ------------------------------------------------------------
+   原先只有 primary 系按钮有扫光，这里推广到标题栏/状态栏/对话框/调色板/
+   侧栏树行/菜单项/搜索面板等全部控件。
+
+   三条硬约束（与"去掉全屏无限动画"那轮优化一致，勿改）：
+   ① 只在 :hover 期间跑一次 0.62s 动画，**不常驻** → 空闲 CPU 不受影响；
+   ② 只用 transform + opacity（走合成器），不用 background-position
+      （逐帧重绘，且会被元素自身的 background 简写覆盖），也不用 left/top
+      （会触发重排）；
+   ③ prefers-reduced-motion 下彻底关闭。
+
+   目标集合是逐元素核对过的，不要随手加：
+   · 统一用 ::after —— 旧的 primary 扫光已删除，故所有目标 ::after 均空闲
+   · **刻意排除 .mditor-menu-item**：它内部有 position:absolute 的子菜单（left:100%），
+     overflow:hidden 会把子菜单裁掉，直接破坏右键菜单
+   · **刻意排除 .mditor-tab**：激活态 .mditor-tab-active::before 位于 top:-1px（盒子外），
+     overflow:hidden 会把那条激活底线裁掉。
+     注意标签栏容器 .tabbar-scroll 也带 .mditor-sidebar 类，所以必须显式 :not(.mditor-tab)
+   · .code-lang-badge / .code-copy-btn 本身是 position:absolute，
+     只补裁剪、**不能**补 position:relative（那会把它们打回文档流、位置全乱）
+   ============================================================ */
+
+:root {
+  --sheen-fill: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.34), transparent);
+  /* 小尺寸图标按钮（44px 及以下）专用：40% 宽 + 0.34 的扫光带在小方块上
+     只有 ~10-17px 宽、对比不足，肉眼几乎不可见 */
+  --sheen-strong-fill: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.68), transparent);
+}
+
+/* 浅色主题：白底上纯白高光看不见 → 换成「暗边 + 亮心」双带，
+   这样透明底按钮（近白）与主题色实底按钮都能看到扫光。
+   双带本身够亮，小按钮上只靠加宽即可，strong 直接复用。 */
+:root[data-theme='light'],
+:root[data-theme='paper'] {
+  --sheen-fill: linear-gradient(
+    105deg,
+    transparent,
+    rgba(0, 0, 0, 0.06) 40%,
+    rgba(255, 255, 255, 0.95) 52%,
+    rgba(0, 0, 0, 0.06) 64%,
+    transparent
+  );
+  --sheen-strong-fill: linear-gradient(
+    105deg,
+    transparent,
+    rgba(0, 0, 0, 0.06) 30%,
+    rgba(255, 255, 255, 0.95) 50%,
+    rgba(0, 0, 0, 0.06) 70%,
+    transparent
+  );
+}
+
+/* 1) 裁剪扫光（含 absolute 定位的那两个） */
+:is(
+    .titlebar-btn,
+    .mditor-statusbar-btn,
+    .mditor-dialog-btn,
+    .mditor-resize-choice-btn,
+    .search-panel-replace-btn,
+    .mditor-primary-btn,
+    .mditor-findbar button,
+    .search-panel-close,
+    .search-panel-result,
+    .mditor-palette-item,
+    .mditor-lang-item,
+    .code-lang-badge,
+    .code-copy-btn,
+    .mditor-sidebar button,
+    .mditor-recent-file-item
+  ):not(.mditor-tab) {
+  overflow: hidden;
+}
+
+/* 2) 定位上下文：只给原本静态定位的元素补（absolute 的那两个跳过） */
+:is(
+    .titlebar-btn,
+    .mditor-statusbar-btn,
+    .mditor-dialog-btn,
+    .mditor-resize-choice-btn,
+    .search-panel-replace-btn,
+    .mditor-primary-btn,
+    .mditor-findbar button,
+    .search-panel-close,
+    .search-panel-result,
+    .mditor-palette-item,
+    .mditor-lang-item,
+    .mditor-sidebar button,
+    .mditor-recent-file-item
+  ):not(.mditor-tab) {
+  position: relative;
+}
+
+/* 3) 高光条本体 */
+:is(
+    .titlebar-btn,
+    .mditor-statusbar-btn,
+    .mditor-dialog-btn,
+    .mditor-resize-choice-btn,
+    .search-panel-replace-btn,
+    .mditor-primary-btn,
+    .mditor-findbar button,
+    .search-panel-close,
+    .search-panel-result,
+    .mditor-palette-item,
+    .mditor-lang-item,
+    .code-lang-badge,
+    .code-copy-btn,
+    .mditor-sidebar button,
+    .mditor-recent-file-item
+  ):not(.mditor-tab)::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  pointer-events: none;
+  background: var(--sheen-fill);
+  transform: translateX(-250%) skewX(-18deg);
+  opacity: 0;
+}
+
+/* 4) 悬停时播放一次 */
+:is(
+    .titlebar-btn,
+    .mditor-statusbar-btn,
+    .mditor-dialog-btn,
+    .mditor-resize-choice-btn,
+    .search-panel-replace-btn,
+    .mditor-primary-btn,
+    .mditor-findbar button,
+    .search-panel-close,
+    .search-panel-result,
+    .mditor-palette-item,
+    .mditor-lang-item,
+    .code-lang-badge,
+    .code-copy-btn,
+    .mditor-sidebar button,
+    .mditor-recent-file-item
+  ):not(.mditor-tab):hover::after {
+  animation: mditor-sheen 0.62s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@keyframes mditor-sheen {
+  0% {
+    transform: translateX(-250%) skewX(-18deg);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(400%) skewX(-18deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(
+      .titlebar-btn,
+      .mditor-statusbar-btn,
+      .mditor-dialog-btn,
+      .mditor-resize-choice-btn,
+      .search-panel-replace-btn,
+      .mditor-primary-btn,
+      .mditor-findbar button,
+      .search-panel-close,
+      .search-panel-result,
+      .mditor-palette-item,
+      .mditor-lang-item,
+      .code-lang-badge,
+      .code-copy-btn,
+      .mditor-sidebar button,
+      .mditor-recent-file-item
+    ):not(.mditor-tab)::after {
+    /* 必须 !important：hover 触发规则 :is(...):hover::after 的特异性 (0,2,0)
+       高于本规则的 (0,1,0)，@media 不改变特异性 —— 不加重要标记时
+       "减少动效" 用户悬停控件仍会播放扫光 */
+    animation: none !important;
+    opacity: 0;
+  }
+}
+
+/* ── 流光补层（复查发现的漏网控件，规则与上方主层完全一致） ──
+   .mditor-settings-tab   设置弹窗的页签按钮
+   .mditor-shortcut-key-btn  快捷键捕获按钮
+   .mditor-settings-toggle   设置项开关（label 包 checkbox）
+   三者均无伪元素占用、无绝对定位子元素，可安全承载。 */
+:is(
+    .mditor-settings-tab,
+    .mditor-shortcut-key-btn,
+    .mditor-settings-toggle
+  ) {
+  position: relative;
+  overflow: hidden;
+}
+:is(
+    .mditor-settings-tab,
+    .mditor-shortcut-key-btn,
+    .mditor-settings-toggle
+  )::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  pointer-events: none;
+  background: var(--sheen-fill);
+  transform: translateX(-250%) skewX(-18deg);
+  opacity: 0;
+}
+:is(
+    .mditor-settings-tab,
+    .mditor-shortcut-key-btn,
+    .mditor-settings-toggle
+  ):hover::after {
+  animation: mditor-sheen 0.62s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(
+      .mditor-settings-tab,
+      .mditor-shortcut-key-btn,
+      .mditor-settings-toggle
+    )::after {
+    animation: none !important;
+    opacity: 0;
+  }
+}
+
+/* ── 小尺寸图标按钮加强层 ──
+   44px 及以下的纯图标小方块上，40% 宽的扫光带只有 10-17px、峰值 0.34 对比不足，
+   实测动画正常跑但肉眼几乎捕捉不到。只加宽 + 提亮高光带，动画节奏不变；
+   文字按钮与宽列表行（palette-item/recent-file-item 等）保持原样。
+   .code-lang-badge / .code-copy-btn 本身 absolute，其 ::after 以自身为包含块，安全。 */
+:is(
+    .titlebar-btn,
+    .search-panel-close,
+    .code-lang-badge,
+    .code-copy-btn
+  ):not(.mditor-tab)::after {
+  width: 55%;
+  background: var(--sheen-strong-fill);
+}
+
+/* ── 工具栏按钮流光（本次修复的真正目标） ──
+   MyMdEdit 的工具栏按钮（格式 B/I/S/H1…、保存、关联、每日笔记、搜索、导出、设置、主题）
+   全部使用 Tailwind 工具类，**没有任何稳定 CSS 类名** —— 所以按类名枚举的流光层
+   一个也命中不到，这就是"顶部工具栏小图标没有流光"的根因。
+   这里改为命中**容器结构** `.mditor-toolbar button`：覆盖工具栏内全部按钮，
+   含未来新增的按钮，无需给每个按钮加类名。
+   按钮实际尺寸 24-30px → 按小按钮规格（band 80% + strong 高光）。
+   安全性：工具栏内按钮无绝对定位子元素；导出/主题的下拉菜单用 createPortal
+   渲染到 body，不受这里的 overflow: hidden 影响。 */
+.mditor-toolbar button {
+  overflow: hidden;
+}
+.mditor-toolbar button::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 55%;
+  pointer-events: none;
+  background: var(--sheen-strong-fill);
+  transform: translateX(-250%) skewX(-18deg);
+  opacity: 0;
+  border-radius: inherit;
+}
+.mditor-toolbar button:hover:not(:disabled)::after {
+  animation: mditor-sheen-sm 0.72s cubic-bezier(0.5, 0.05, 0.5, 0.95);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mditor-toolbar button::after {
+    animation: none !important;
+    opacity: 0;
+  }
+}
+
+/* ── 小尺寸元素专用扫光节奏 ──
+   原 md-sheen 行程是 translateX(-250% → 400%)：在 200px 的列表行上没问题，
+   但在 28px 的小按钮上，高光带只有约 1/3 的时间停留在按钮可视区内
+   （其余时间在按钮外被 overflow 裁掉）→ 观感"一闪而过"。
+   这里给小于 ~44px 的元素换成短行程 + 两侧保持不透明的节奏，
+   让高光在按钮内停留约 2/3 时长，且起始缓动更柔（不再一上来就冲过去）。 */
+@keyframes mditor-sheen-sm {
+  0% {
+    transform: translateX(-150%) skewX(-18deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(240%) skewX(-18deg);
+    opacity: 0;
+  }
+}
+:is(.titlebar-btn, .search-panel-close, .code-lang-badge, .code-copy-btn):not(
+    .mditor-tab
+  ):hover::after {
+  animation: mditor-sheen-sm 0.72s cubic-bezier(0.5, 0.05, 0.5, 0.95);
+}
+
+/* ── 工具栏禁用态可见性 ──
+   原实现：内联 Tailwind 用 `text-[var(--color-text-dim)]`(#525468) 再叠 `opacity-60`，
+   双重压暗后与深色工具栏的对比度不足 2:1 —— 实测截图里"保存"按钮等于消失，
+   用户不知道那里有个按钮。这里给统一规范：
+   可见（≈3.9:1）但明显弱于可用态（≈13:1），禁用语义保留。
+   用 color-mix 生成半透明前景，浅色/纸质主题下同样成立。 */
+.mditor-toolbar button:disabled {
+  color: color-mix(in srgb, var(--color-text-secondary) 78%, transparent);
+  cursor: default;
+}
+
+/* ── 下拉菜单项流光（导出 / 主题菜单）──
+   菜单项是 176px 宽的整行 → 用常规规格（band 40% + 标准高光），
+   与小图标按钮的加强规格区分，避免大块元素上光带过宽。 */
+.mditor-glass-menu button {
+  position: relative;
+  overflow: hidden;
+}
+.mditor-glass-menu button::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  pointer-events: none;
+  background: var(--sheen-fill);
+  transform: translateX(-250%) skewX(-18deg);
+  opacity: 0;
+}
+.mditor-glass-menu button:hover::after {
+  animation: mditor-sheen 0.62s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .mditor-glass-menu button::after {
+    animation: none !important;
+    opacity: 0;
+  }
+}

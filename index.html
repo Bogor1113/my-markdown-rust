@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <title>MyMdEdit</title>
+    <style>
+      /* 启动期背景色：WebView2 加载 CSS 之前先显示主题底色，避免白色闪烁。
+         注意：此处颜色需与 index.css 的 --color-bg 同步（暗色 #1a1b1e / 亮色 #ffffff）
+         若调整主题色，请同步修改 index.css、本处及 tauri.conf.json 的 backgroundColor */
+      html,
+      body {
+        background-color: #1a1b1e;
+        margin: 0;
+        padding: 0;
+      }
+      /* main.tsx 设置 data-theme 后立即切换为亮色主题底色（浅色用户不闪暗色） */
+      html[data-theme='light'],
+      html[data-theme='light'] body {
+        background-color: #ffffff;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
