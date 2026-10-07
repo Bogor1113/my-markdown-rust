@@ -59,3 +59,6 @@ debug-run/
 Thumbs.db
 *.suo
 *.sw?
+
+# ---------- 调试 / 临时产物 ----------
+temp-docx-test/
