@@ -113,13 +113,18 @@ const FindReplace = () => {
   const buildQuery = (q: string, r: string): SearchQuery | null => {
     const f = flagsRef.current
     try {
-      return new SearchQuery({
+      // SearchQuery 构造函数对非法正则不抛异常，而是置 valid=false 并退化为
+      // 永远查不到结果的 nullQuery——不显式检查的话用户只会看到"无匹配"，
+      // 误以为内容里没有，而不知道是正则写错了
+      const sq = new SearchQuery({
         search: q,
         replace: r,
         caseSensitive: f.caseSensitive,
         regexp: f.regexp,
         wholeWord: f.wholeWord,
       })
+      if (!sq.valid) return null
+      return sq
     } catch {
       return null
     }

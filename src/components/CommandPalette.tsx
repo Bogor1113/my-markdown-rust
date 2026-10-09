@@ -38,28 +38,34 @@ function buildCommands(): CommandItem[] {
   return [
     ...themeCommands,
     { id: 'focus', title: '切换专注模式', run: () => s.toggleFocusMode() },
-    { id: 'toc', title: '插入目录', run: () => toast(insertToc(ed) ? '已插入目录' : '没有可生成的标题') },
     {
       id: 'copymd',
       title: '复制 Markdown 源码',
       run: async () => toast((await copyMarkdownSource()) ? '已复制 Markdown 源码' : '复制失败'),
     },
-    { id: 'format', title: '整理文档格式', run: () => toast(formatDocument(ed) ? '已整理文档格式' : '无需整理') },
-    {
-      id: 'validate',
-      title: '校验链接 / 图片路径',
-      run: async () => {
-        const broken = await validateDocument(ed)
-        s.openValidation(broken)
-      },
-    },
+    // 编辑类命令依赖 Milkdown 编辑器实例；源码模式下 editor 为 null，
+    // 执行只会得到「导出失败/无需整理」等误导性反馈，直接从列表隐去
+    ...(ed
+      ? [
+          { id: 'toc', title: '插入目录', run: () => toast(insertToc(ed) ? '已插入目录' : '没有可生成的标题') },
+          { id: 'format', title: '整理文档格式', run: () => toast(formatDocument(ed) ? '已整理文档格式' : '无需整理') },
+          {
+            id: 'validate',
+            title: '校验链接 / 图片路径',
+            run: async () => {
+              const broken = await validateDocument(ed)
+              s.openValidation(broken)
+            },
+          },
+          { id: 'export-pdf', title: '导出 PDF', run: runExport(async () => exportPdf, 'PDF') },
+          { id: 'export-docx', title: '导出 Word', run: runExport(() => import('../services/exportDocx').then((m) => m.exportDocx), 'Word') },
+          { id: 'export-html', title: '导出 HTML', run: runExport(async () => exportHtml, 'HTML') },
+        ]
+      : []),
     { id: 'search', title: '全局搜索', run: () => s.openSearch() },
     { id: 'save', title: '保存当前文件', run: () => s.saveCurrentFile() },
     { id: 'settings', title: '打开设置', run: () => useSettingsStore.getState().openSettings() },
     { id: 'settings-shortcuts', title: '快捷键设置', run: () => useSettingsStore.getState().openSettings('shortcuts') },
-    { id: 'export-pdf', title: '导出 PDF', run: runExport(async () => exportPdf, 'PDF') },
-    { id: 'export-docx', title: '导出 Word', run: runExport(() => import('../services/exportDocx').then((m) => m.exportDocx), 'Word') },
-    { id: 'export-html', title: '导出 HTML', run: runExport(async () => exportHtml, 'HTML') },
   ]
 }
 
@@ -121,7 +127,10 @@ export const CommandPalette = () => {
       const c = filteredCmds[i]
       if (!c) return
       close()
-      Promise.resolve(c.run()).catch(() => {})
+      Promise.resolve(c.run()).catch((e) => {
+        // 命令失败不能静默：导出 PDF/Word 等失败时用户会误以为成功
+        useAppStore.getState().showToast(`命令执行失败：${e instanceof Error ? e.message : String(e)}`)
+      })
     }
   }
 

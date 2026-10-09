@@ -178,6 +178,10 @@ export const imageNodeViewPlugin = $prose(() => {
           if (img.getAttribute('src') !== url) img.setAttribute('src', url)
         })
       } else {
+        // 同步清掉 SVG 异步标记：src 从 SVG 改成普通图片时，若不清，
+        // 之前在途的 toDisplaySvgSrc promise resolve 后会通过
+        // `renderSrc === src` 校验把旧 SVG 内容写回来，覆盖正确图片。
+        if (img.dataset.renderSrc) delete img.dataset.renderSrc
         const displaySrc = toDisplayImageSrc(src)
         if (img.getAttribute('src') !== displaySrc) img.setAttribute('src', displaySrc)
       }

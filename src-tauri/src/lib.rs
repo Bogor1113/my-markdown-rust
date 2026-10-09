@@ -163,16 +163,17 @@ pub fn run() {
                 .cloned()
                 .collect();
             
+            // 无论是否带文件参数都要唤起主窗口：主窗口在托盘/最小化时双击 exe
+            // 或开始菜单图标，第二实例被插件终止——若只在带文件参数时才 show/focus，
+            // 用户会以为"程序点不开"
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.show();
+                let _ = win.unminimize();
+                let _ = win.set_focus();
+            }
             if !file_paths.is_empty() {
                 // 发送事件到主窗口，通知前端打开这些文件
                 let _ = app.emit("single-instance-open-files", file_paths);
-                
-                // 同时显示并聚焦主窗口
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.show();
-                    let _ = win.unminimize();
-                    let _ = win.set_focus();
-                }
             }
         }))
         .manage(DirtyFiles(Mutex::new(Vec::new())))
@@ -252,8 +253,15 @@ pub fn run() {
             let fit_item = MenuItem::with_id(app, "fit-window", "窗口适配到屏幕", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出程序", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&new_file_item, &show_item, &fit_item, &quit_item])?;
-            let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+            // 图标加载失败不 panic：只损失托盘图标显示，不能让整个应用无法启动
+            let tray_builder = match app.default_window_icon() {
+                Some(icon) => TrayIconBuilder::new().icon(icon.clone()),
+                None => {
+                    eprintln!("[tray] default window icon unavailable, tray will have no icon");
+                    TrayIconBuilder::new()
+                }
+            };
+            let _tray = tray_builder
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {

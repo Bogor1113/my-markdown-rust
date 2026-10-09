@@ -160,6 +160,13 @@ export const codeBlockLineNumbers = $prose(() =>
         })
       }
       scrollRoot.addEventListener('scroll', onScroll, { passive: true })
+      // 窗口/容器宽度变化 → 折行数变化 → 行号错位，需重新同步。
+      // 旧实现只监听 doc 变化和 scroll，resize 后要等下一次编辑/滚动才恢复对齐。
+      let resizeObserver: ResizeObserver | null = null
+      if (typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(() => schedule())
+        resizeObserver.observe(scrollRoot)
+      }
       return {
         // 仅文档内容变化时才同步行号；纯光标移动/选区变化不触发（避免
         // 每按一次方向键都对全部 code 块强制重排）。
@@ -171,6 +178,7 @@ export const codeBlockLineNumbers = $prose(() =>
           if (raf) cancelAnimationFrame(raf)
           if (scrollRaf) cancelAnimationFrame(scrollRaf)
           scrollRoot.removeEventListener('scroll', onScroll)
+          resizeObserver?.disconnect()
           lastDoc = null
           lastSet = DecorationSet.empty
         },

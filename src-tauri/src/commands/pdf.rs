@@ -156,27 +156,32 @@ fn run_pdf_worker(
         for attempt in 1..=3 {
             let (ctx, crx) = mpsc::channel::<windows::core::Result<ICoreWebView2Controller>>();
             let envc = environment.clone();
-            CreateCoreWebView2ControllerCompletedHandler::wait_for_async_operation(
-                Box::new(move |handler| unsafe {
-                    envc
-                        .CreateCoreWebView2Controller(hwnd, &handler)
-                        .map_err(webview2_com::Error::WindowsError)
-                }),
-                Box::new(move |error_code, controller| {
-                    error_code?;
-                    ctx.send(controller.ok_or_else(|| windows::core::Error::from(E_POINTER)))
-                        .expect("send controller");
-                    Ok(())
-                }),
-            )
-            .map_err(|e| format!("创建 WebView2 控制器失败：{e}"))?;
-            match crx.recv() {
-                Ok(Ok(c)) => {
-                    created = Some(c);
-                    break;
-                }
-                Ok(Err(e)) => last_err = Some(e.to_string()),
-                Err(_) => last_err = Some("回调丢失".to_string()),
+            // 注意：wait_for_async_operation 的错误不能 `?` 直接抛出——
+            // 那会跳过整个重试循环，退避重试形同虚设。错误记入 last_err 继续。
+            let wait_result =
+                CreateCoreWebView2ControllerCompletedHandler::wait_for_async_operation(
+                    Box::new(move |handler| unsafe {
+                        envc
+                            .CreateCoreWebView2Controller(hwnd, &handler)
+                            .map_err(webview2_com::Error::WindowsError)
+                    }),
+                    Box::new(move |error_code, controller| {
+                        error_code?;
+                        ctx.send(controller.ok_or_else(|| windows::core::Error::from(E_POINTER)))
+                            .expect("send controller");
+                        Ok(())
+                    }),
+                );
+            match wait_result {
+                Ok(()) => match crx.recv() {
+                    Ok(Ok(c)) => {
+                        created = Some(c);
+                        break;
+                    }
+                    Ok(Err(e)) => last_err = Some(e.to_string()),
+                    Err(_) => last_err = Some("回调丢失".to_string()),
+                },
+                Err(e) => last_err = Some(format!("等待控制器创建回调失败：{e}")),
             }
             #[cfg(debug_assertions)]
             eprintln!("[pdf-export] controller 创建失败 attempt={attempt}，稍后重试: {last_err:?}");
@@ -390,9 +395,19 @@ async fn export_pdf_windows(
         pdf_worker(tmp2, target2, wtx);
     });
 
-    // 3. 等待打印完成 / 失败 / 超时，然后清理临时文件
-    let result = rx.recv_timeout(PRINT_TIMEOUT).unwrap_or_else(|_| {
-        Err("PDF 导出超时（页面加载或打印未在 30 秒内完成）".to_string())
+    // 3. 等待打印完成 / 失败 / 超时，然后清理临时文件。
+    //    等待时限必须 ≥ worker 侧总时限（PRINT_TIMEOUT + 1.5s 宽限）：
+    //    若命令侧先超时返回"失败"，PDF 实际可能在宽限窗口内已成功写出，
+    //    用户看到失败提示、文件却存在且没有书签。
+    //    放进 spawn_blocking：async command 里直接 recv_timeout 会阻塞
+    //    tokio worker 线程 30+ 秒，并发导出/搜索时排队甚至饿死。
+    let wait_result = tauri::async_runtime::spawn_blocking(move || {
+        rx.recv_timeout(PRINT_TIMEOUT + Duration::from_secs(3))
+    })
+    .await
+    .unwrap_or_else(|_| Err(std::sync::mpsc::RecvTimeoutError::Disconnected));
+    let result = wait_result.unwrap_or_else(|_| {
+        Err("PDF 导出超时（页面加载或打印未在限时内完成）".to_string())
     });
     let _ = std::fs::remove_file(&tmp_path);
 

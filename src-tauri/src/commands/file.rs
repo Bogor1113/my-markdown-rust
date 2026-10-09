@@ -87,9 +87,6 @@ fn write_image_bytes(app: &AppHandle, path: &str, bytes: &[u8]) -> Result<(), St
 #[tauri::command]
 pub fn create_file(app: AppHandle, path: String, content: Option<String>) -> Result<(), String> {
     let target = Path::new(&path);
-    if target.exists() {
-        return Err(format!("File already exists: {}", path));
-    }
     if let Some(parent) = target.parent() {
         let dir = parent.to_string_lossy().to_string();
         if !dir.is_empty() {
@@ -102,7 +99,19 @@ pub fn create_file(app: AppHandle, path: String, content: Option<String>) -> Res
         }
     }
     let data = content.unwrap_or_default();
-    atomic_write(target, data.as_bytes()).map_err(|e| format!("Failed to create file: {}", e))
+    // 用 create_new 原子创建：先 exists() 检查再 rename 覆盖存在 TOCTOU 窗口，
+    // 窗口期内目标若被其他进程创建会被无条件覆盖（与 rename_path 同样的考量）。
+    // 新文件没有旧内容需要保护，直接写入即可，无需临时文件原子替换。
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target)
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => format!("File already exists: {}", path),
+            _ => format!("Failed to create file: {}", e),
+        })?;
+    std::io::Write::write_all(&mut f, data.as_bytes())
+        .map_err(|e| format!("Failed to create file: {}", e))
 }
 
 /// 创建目录（含父目录）
@@ -154,9 +163,17 @@ pub fn delete_path(path: String) -> Result<DeleteResult, String> {
     {
         match recycle_delete_windows(&path) {
             Ok(()) => return Ok(DeleteResult { recycled: true }),
+            // 用户在系统对话框里取消（fAnyOperationsAborted）≠ 回收站不可用：
+            // 绝不能把「用户主动取消」变成不可逆的永久删除，直接报错返回
+            Err(RecycleError::Aborted) => {
+                return Err("删除已取消".into());
+            }
             // 回收站不可用（网络驱动器/文件被占用等）：退化为永久删除，
             // 通过 recycled:false 让前端明确提示用户「已永久删除」。
-            Err(_) => {}
+            // 原因记日志，便于事后诊断为何发生了不可逆删除。
+            Err(RecycleError::Unavailable(reason)) => {
+                eprintln!("[delete] recycle unavailable, falling back to permanent delete: {reason}");
+            }
         }
     }
 
@@ -170,7 +187,16 @@ pub fn delete_path(path: String) -> Result<DeleteResult, String> {
 
 /// Windows：把文件/目录移入回收站（SHFileOperationW + FOF_ALLOWUNDO）
 #[cfg(target_os = "windows")]
-fn recycle_delete_windows(path: &str) -> Result<(), String> {
+enum RecycleError {
+    /// 用户在系统对话框中取消了操作
+    Aborted,
+    /// 回收站不可用（网络驱动器/策略限制等）
+    Unavailable(String),
+}
+
+/// Windows：把文件/目录移入回收站（SHFileOperationW + FOF_ALLOWUNDO）
+#[cfg(target_os = "windows")]
+fn recycle_delete_windows(path: &str) -> Result<(), RecycleError> {
     use windows_sys::Win32::UI::Shell::{SHFileOperationW, SHFILEOPSTRUCTW, FO_DELETE};
 
     // FOF_ALLOWUNDO  0x0040 → 允许撤销（即进回收站）
@@ -196,11 +222,12 @@ fn recycle_delete_windows(path: &str) -> Result<(), String> {
 
         let ret = SHFileOperationW(&mut op);
         if ret != 0 {
-            return Err(format!("SHFileOperationW failed: {}", ret));
+            return Err(RecycleError::Unavailable(format!("SHFileOperationW failed: {}", ret)));
         }
-        // 用户取消（如 UAC 弹窗被拒）也算失败，交由调用方降级处理
+        // 用户取消（如 UAC 弹窗被拒）：与「回收站不可用」严格区分，
+        // 调用方对 Aborted 不得降级为永久删除
         if op.fAnyOperationsAborted != 0 {
-            return Err("operation aborted".into());
+            return Err(RecycleError::Aborted);
         }
     }
     Ok(())

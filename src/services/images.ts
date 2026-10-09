@@ -16,9 +16,10 @@ export const IMAGE_MIME: Record<string, string> = {
 
 let seq = 0
 
-/** 去掉文件名里的非法字符 */
+/** 去掉文件名里的非法字符。# 和 % 必须替换：文档里的相对引用按 URL 解析，
+ *  `#` 后被当 fragment 截断、`%` 会被 decode 误解，都会裂图 */
 function sanitizeName(name: string): string {
-  const clean = name.replace(/[\\/:*?"<>|\s]+/g, '_').trim()
+  const clean = name.replace(/[\\/:*?"<>|#%\s]+/g, '_').trim()
   return clean || `image-${Date.now()}`
 }
 
@@ -59,11 +60,14 @@ export async function saveImageToAssets(
   const namePart = path.slice(path.lastIndexOf(sep) + 1)
   const base = namePart.replace(/\.(md|markdown)$/i, '') || 'document'
 
-  // 扩展名：优先取文件名自带，否则按 MIME 推断
+  // 扩展名：优先取文件名自带，否则按 MIME 推断。
+  // 无扩展名的文件名也要落 finalExt：此前整名直接用，落盘文件丢扩展名，
+  // 文档引用与导出链路的「扩展名 → MIME」推断全部落空
   const dot = fileName.lastIndexOf('.')
   const nameExt = dot > 0 ? fileName.slice(dot + 1).toLowerCase() : ''
   const finalExt = /^[a-z0-9]{2,5}$/.test(nameExt) ? nameExt : extFromMime(mime)
-  const unique = `${Date.now()}-${seq++}-${sanitizeName(fileName) || `image.${finalExt}`}`
+  const stem = sanitizeName(dot > 0 ? fileName.slice(0, dot) : fileName) || 'image'
+  const unique = `${Date.now()}-${seq++}-${stem}.${finalExt}`
   const absPath = `${dir}${base}.assets${sep}${unique}`
 
   try {

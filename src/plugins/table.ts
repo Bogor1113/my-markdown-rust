@@ -9,6 +9,7 @@ import { $prose } from '@milkdown/kit/utils'
 import { columnResizing } from '@milkdown/kit/prose/tables'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { Fragment } from '@milkdown/kit/prose/model'
+import type { Node } from '@milkdown/kit/prose/model'
 
 /** 使用 prosemirror-tables 官方的列宽拖拽插件 */
 export const tablePlugin = $prose(() =>
@@ -65,6 +66,23 @@ function getCellIndices(view: EditorView, pos: number): { tablePos: number; rowI
   return { tablePos, rowIdx, colIdx }
 }
 
+/** 收集单元格内所有段落的行内子节点（schema 的 cellContent 是 'paragraph'，
+ *  合并/拆分时必须保证每个 cell 内容恰好是一个 paragraph，否则文档结构非法） */
+function collectInlineNodes(cell: Node): Node[] {
+  const out: Node[] = []
+  cell.content.forEach((child) => {
+    if (child.type.name === 'paragraph') child.content.forEach((n) => out.push(n))
+  })
+  return out
+}
+
+/** 用单个 paragraph 包裹行内内容，作为新的 cell 内容 */
+function wrapInlineToCell(cell: Node, inline: Node[]): Fragment {
+  const paragraphType = cell.type.schema.nodes.paragraph
+  if (!paragraphType) return cell.content
+  return Fragment.from([paragraphType.create(null, Fragment.from(inline))])
+}
+
 /** 合并单元格：将当前单元格与右侧单元格合并（增加 colspan） */
 export function mergeCells(view: EditorView): boolean {
   const { state, dispatch } = view
@@ -89,8 +107,12 @@ export function mergeCells(view: EditorView): boolean {
   const rightColspan = rightCell.attrs.colspan || 1
   const newColspan = leftColspan + rightColspan
 
-  // 合并内容：将右侧单元格内容追加到左侧
-  const newContent = leftCell.content.append(rightCell.content)
+  // 合并内容：追加右侧内容，并压回单个 paragraph（cellContent: 'paragraph'，
+  // 直接 append 两个段落会产生 schema 违规文档，dispatch 时抛 Invalid content）
+  const leftInline = collectInlineNodes(leftCell)
+  const rightInline = collectInlineNodes(rightCell)
+  const sep = leftInline.length > 0 && rightInline.length > 0 ? [leftCell.type.schema.text(' ')] : []
+  const newContent = wrapInlineToCell(leftCell, [...leftInline, ...sep, ...rightInline])
   const newCell = leftCell.type.create({ ...leftCell.attrs, colspan: newColspan }, newContent)
 
   // 重建行
@@ -136,7 +158,9 @@ export function splitCell(view: EditorView): boolean {
     for (let j = startIdx; j < endIdx; j++) {
       children.push(cell.content.child(j))
     }
-    const frag = Fragment.from(children)
+    // cell 的合法内容是一个 paragraph；行内子节点必须用 paragraph 包裹后再放入
+    // （直接把 inline fragment 当 cell 内容会产生 schema 违规文档）
+    const frag = wrapInlineToCell(cell, children)
     newCells.push(cell.type.create({ ...cell.attrs, colspan: 1 }, frag))
   }
 

@@ -45,6 +45,8 @@ const StatusBar = () => {
   const activeTab = tabs.find((t) => t.id === activeTabId)
   const isMdTab = !!activeTab && isMarkdown(activeTab.path)
   const hasTab = !!activeTab
+  const sourceMode = isMdTab && !!activeTab?.sourceMode
+  const toggleSourceMode = useAppStore((s) => s.toggleSourceMode)
 
   // countStats 会对整篇文档跑 11 个全量正则，是 O(文档长度) 的重活。
   // 之前它直接依赖 activeTab.content，于是**每敲一个字符**都要全量统计一遍
@@ -108,6 +110,15 @@ const StatusBar = () => {
         ) : null}
       </div>
       <div className="mditor-statusbar-right">
+        {isMdTab && (
+          <button
+            className={`mditor-statusbar-btn${sourceMode ? ' active' : ''}`}
+            onClick={() => toggleSourceMode()}
+            title={sourceMode ? '切换到所见即所得模式' : '切换到源码模式（直接编辑原始 Markdown）'}
+          >
+            源码
+          </button>
+        )}
         <button
           className={`mditor-statusbar-btn${focusMode ? ' active' : ''}`}
           onClick={toggleFocusMode}

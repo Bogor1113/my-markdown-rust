@@ -9,6 +9,7 @@
 
 import { editorViewCtx } from '@milkdown/kit/core'
 import type { Editor } from '@milkdown/kit/core'
+import type { Mark } from '@milkdown/kit/prose/model'
 
 const CJK = '[一-鿿　-〿＀-￯]'
 const LATIN = '[0-9A-Za-z]'
@@ -50,25 +51,30 @@ export function optimizeTypography(editor: Editor | null): boolean {
     const view = ctx.get(editorViewCtx)
     if (!view || view.isDestroyed) return
     const { doc } = view.state
-    const changes: { from: number; to: number; text: string }[] = []
+    const changes: { from: number; to: number; text: string; marks: readonly Mark[] }[] = []
+    // 这些节点的文本是「源码」而非正文：排版改写会破坏 YAML 结构、LaTeX 公式
+    // 与 HTML 属性（如 font-family:"微软雅黑",sans-serif 里的逗号被换全角）。
+    const SOURCE_NODES = new Set(['code_block', 'frontmatter', 'math_inline', 'math_block', 'htmlBlock', 'html'])
     doc.descendants((node, pos) => {
-      if (node.type.name === 'code_block') return false // 跳过代码块
+      if (SOURCE_NODES.has(node.type.name)) return false // 跳过整棵子树
       if (!node.isText) return true
       if (node.marks.some((m) => m.type.name === 'code')) return true // 跳过行内代码
       if (!node.text) return true
       const t = typographyText(node.text)
       if (t !== node.text) {
-        changes.push({ from: pos, to: pos + node.text.length, text: t })
+        changes.push({ from: pos, to: pos + node.text.length, text: t, marks: node.marks })
         changed = true
       }
       return true
     })
     if (changes.length === 0) return
-    // 从后往前替换，保证位置有效
+    // 从后往前替换，保证位置有效。
+    // 用 replaceWith + 原节点的 marks：insertText(from≠to) 的 marks 取自替换区间
+    // 边界位置的 marks 交集，会把加粗/斜体/链接等格式剥掉。
     let tr = view.state.tr
     for (let i = changes.length - 1; i >= 0; i--) {
       const c = changes[i]
-      tr = tr.insertText(c.text, c.from, c.to)
+      tr = tr.replaceWith(c.from, c.to, view.state.schema.text(c.text, c.marks))
     }
     view.dispatch(tr)
   })

@@ -54,6 +54,71 @@ interface WalkCtx {
   orderedCount: number
 }
 
+/**
+ * 当前导出任务的行内图片预载表（image 节点 → ImageRun 等段落子元素）。
+ *
+ * 背景：image 在 Milkdown schema 里是 inline 节点，只会出现在段落/标题/表格单元格
+ * 内部。而图片字节加载是异步的，行内构建链（inlineChildren → paragraphFromInline）
+ * 却是同步的——此前行内 switch 没有 image 分支，图片落入 default 递归但作为叶子
+ * 不产生任何输出，导致 **Word 导出静默丢失全部图片**。
+ *
+ * 修法：导出开始前先把全部行内图片异步加载成 ImageRun 存入 WeakMap，
+ * 同步遍历时查表取用。导出是单发任务，用模块级变量避免把 map 参数穿透
+ * 多层同步调用链（inlineChildren/paragraphFromInline/headingParagraph/表格单元格）。
+ */
+let activeInlineImages: WeakMap<Node, ParagraphChild[]> | null = null
+
+async function preloadInlineImages(root: Node, docPath: string): Promise<WeakMap<Node, ParagraphChild[]>> {
+  const map = new WeakMap<Node, ParagraphChild[]>()
+  const jobs: Promise<void>[] = []
+  root.descendants((node) => {
+    if (node.type.name !== 'image') return
+    const src = (node.attrs.src as string) || ''
+    const alt = (node.attrs.alt as string) || ''
+    if (!src) return
+    jobs.push(
+      (async () => {
+        try {
+          const resolved = await resolveImageBytes(src, docPath)
+          if (!resolved) return
+          const ext = resolved.ext.toLowerCase().replace('jpeg', 'jpg')
+          let run: ImageRun | null = null
+          if (ext === 'svg' || ext === 'svg+xml') {
+            // SVG：超采样光栅化为 PNG（行内图片跟随文字流，不再单独居中成段）
+            const url = URL.createObjectURL(new Blob([new Uint8Array(resolved.bytes)], { type: 'image/svg+xml' }))
+            try {
+              const img = await loadImage(url)
+              if (img) {
+                const w = img.naturalWidth || 300
+                const h = img.naturalHeight || 200
+                const result = await supersampleSvgToPng(img, w, h)
+                if (result) {
+                  run = new ImageRun({ type: 'png', data: result.bytes, transformation: { width: result.displayW, height: result.displayH } })
+                }
+              }
+            } finally {
+              URL.revokeObjectURL(url)
+            }
+          } else {
+            const image = await toDocxImage(resolved)
+            const size = image ? await fitImageSize(image.bytes) : null
+            if (image && size) run = new ImageRun({ type: image.type, data: image.bytes, transformation: size })
+          }
+          if (run) {
+            const children: ParagraphChild[] = [run]
+            if (alt) children.push(new TextRun({ text: `（${alt}）`, color: 'A0A0A0', size: 17 }))
+            map.set(node, children)
+          }
+        } catch {
+          /* 单张图片失败不阻断导出，其余照常 */
+        }
+      })(),
+    )
+  })
+  await Promise.all(jobs)
+  return map
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // 一、图片大小解析（同步头解析 + 浏览器兜底）
 // ═══════════════════════════════════════════════════════════════════════
@@ -81,6 +146,11 @@ function parseHeaderSize(bytes: Uint8Array): { width: number; height: number } |
         continue
       }
       const marker = bytes[off + 1]
+      if (marker === 0xff) {
+        // 连续 0xFF 填充字节：跳过，避免把填充当 marker 读出垃圾长度
+        off++
+        continue
+      }
       if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7)) {
         off += 2
         continue
@@ -98,9 +168,10 @@ function parseHeaderSize(bytes: Uint8Array): { width: number; height: number } |
   if (bytes.length >= 30 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[8] === 0x57) {
     const kind = String.fromCharCode(bytes[12], bytes[13], bytes[14], bytes[15])
     if (kind === 'VP8X') {
+      // VP8X 的 24 位字段存的是「宽/高 − 1」（规范如此），必须 +1 还原真实尺寸
       return {
-        width: bytes[24] | (bytes[25] << 8) | (bytes[26] << 16),
-        height: bytes[27] | (bytes[28] << 8) | (bytes[29] << 16),
+        width: (bytes[24] | (bytes[25] << 8) | (bytes[26] << 16)) + 1,
+        height: (bytes[27] | (bytes[28] << 8) | (bytes[29] << 16)) + 1,
       }
     }
   }
@@ -205,6 +276,12 @@ function inlineChildren(
       case 'taskListItemCheckbox':
         // GFM 任务勾选框：列表项首位，由列表项 checked 渲染 ☑/☐，这里跳过
         break
+      case 'image': {
+        // 行内图片：查预载表（见 activeInlineImages）。解析失败的图片跳过（与块级一致）
+        const children = activeInlineImages?.get(child)
+        if (children) acc.push(...children)
+        break
+      }
       default:
         inlineChildren(child, marks, acc, forceBold)
         break
@@ -362,7 +439,7 @@ async function resolveImageBytes(src: string, docPath: string): Promise<{ bytes:
   } catch {
     /* 保留原样 */
   }
-  if (!/^[A-Za-z]:[\\/]/.test(filePath)) {
+  if (!/^(?:[A-Za-z]:[\\/]|\\\\|\/\/)/.test(filePath)) {
     filePath = joinPath(parentDirOf(docPath), filePath)
   }
   try {
@@ -646,14 +723,11 @@ function levelsFor(ordered: boolean) {
 
 /** 列表节点递归展开：list_item → 带编号/项目符号段落；嵌套列表层级 +1；任务项加勾选框 */
 async function pushList(listNode: Node, ordered: boolean, level: number, ctx: WalkCtx): Promise<void> {
-  const reference =
-    level === 0
-      ? ordered
-        ? `md-ordered-${ctx.orderedCount++}`
-        : 'md-bullet'
-      : ordered
-        ? `md-ordered-${ctx.orderedCount - 1}`
-        : 'md-bullet'
+  // 每个有序列表（含嵌套）都独立注册编号引用。旧实现嵌套有序列表借用
+  // `md-ordered-${orderedCount - 1}`：若父级是 bullet 列表或文档中还没有顶层
+  // 有序列表，orderedCount 从未递增，引用变成不存在的 md-ordered--1，
+  // Word 打开时报"内容有问题需要修复"或编号全部丢失。
+  const reference = ordered ? `md-ordered-${ctx.orderedCount++}` : 'md-bullet'
   for (let i = 0; i < listNode.childCount; i++) {
     const item = listNode.child(i)
     const checked = item.attrs.checked as boolean | null
@@ -803,9 +877,12 @@ export async function exportDocx(editor: Editor | null, docPath: string): Promis
     // 根节点 doc 是容器（无对应块类型），必须遍历其顶层子块逐个分发；
     // 直接 pushBlock(view.state.doc) 会落入 default 兜底分支，把整篇文档压成纯文本。
     const root = view.state.doc
+    // 预载全部行内图片（image 是 inline 节点，同步遍历链无法异步取字节，见预载表说明）
+    activeInlineImages = await preloadInlineImages(root, docPath)
     for (let i = 0; i < root.childCount; i++) {
       await pushBlock(root.child(i), walkCtx)
     }
+    activeInlineImages = null
 
     // 大纲导出：文档开头生成静态目录（按标题层级缩进），分页后再输出正文
     const outlineEntries: { level: number; text: string }[] = []

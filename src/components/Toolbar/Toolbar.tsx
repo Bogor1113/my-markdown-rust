@@ -118,6 +118,9 @@ const Toolbar = () => {
   useEffect(() => {
     if (!exportMenuOpen) return
     const onDown = (e: MouseEvent) => {
+      // 触发按钮点击（mousedown）不能算「外部」：否则 mousedown 先关菜单、
+      // 随后的 click 又 toggle 重新打开，按钮永远无法收起菜单
+      if (exportTriggerRef.current?.contains(e.target as Node)) return
       if (exportDropdownRef.current && !exportDropdownRef.current.contains(e.target as Node)) {
         setExportMenuOpen(false)
       }
@@ -135,6 +138,7 @@ const Toolbar = () => {
   useEffect(() => {
     if (!themeMenuOpen) return
     const onDown = (e: MouseEvent) => {
+      if (themeTriggerRef.current?.contains(e.target as Node)) return
       if (themeDropdownRef.current && !themeDropdownRef.current.contains(e.target as Node)) {
         setThemeMenuOpen(false)
       }

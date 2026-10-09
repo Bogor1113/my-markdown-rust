@@ -2,12 +2,12 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "MyMdEdit",
   "mainBinaryName": "mymdedit",
-  "version": "1.0.87",
+  "version": "1.0.88",
   "identifier": "com.dongyueshisan.mymdedit",
   "build": {
-    "beforeDevCommand": "C:\\Users\\jy\\AppData\\Roaming\\npm\\pnpm.cmd dev",
+    "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "C:\\Users\\jy\\AppData\\Roaming\\npm\\pnpm.cmd build",
+    "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
   "app": {

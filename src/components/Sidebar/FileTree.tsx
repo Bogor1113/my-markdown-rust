@@ -13,8 +13,14 @@ const FileTree = () => {
   const handleOpenFolder = async () => {
     const dir = await pickFolder()
     if (!dir) return
-    setRootPath(dir)
-    await loadDirectory(dir)
+    // 先加载成功再设为根目录：加载失败（不可访问/已删除）时不能把坏目录
+    // 写进 session，否则每次启动都恢复一个打不开的根目录
+    try {
+      await loadDirectory(dir)
+      setRootPath(dir)
+    } catch (e) {
+      useAppStore.getState().showToast(`无法打开目录：${e}`)
+    }
   }
 
   const rootEntries = rootPath ? (fileTree[rootPath] ?? []) : []

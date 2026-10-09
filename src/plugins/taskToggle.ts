@@ -12,6 +12,13 @@ export const taskTogglePlugin = $prose(() =>
         if (!targetEl) return false
         const cb = targetEl.closest('[data-checked]') as HTMLElement | null
         if (!cb) return false
+        // data-checked 挂在整个 <li> 上（Milkdown GFM 的 toDOM 决定），
+        // 若不限定区域，点击任务项正文文字也会翻转复选框。
+        // 只有点击落在 li 自身（padding / ::before 伪元素画的 checkbox 区域），
+        // 且横坐标在行首 checkbox 带内（36px）才视为勾选动作；点到 <p> 正文一律放行。
+        if (targetEl !== cb) return false
+        const rect = cb.getBoundingClientRect()
+        if (event.clientX - rect.left > 36) return false
         const pos = view.posAtDOM(cb, 0)
         const $pos = view.state.doc.resolve(pos)
         for (let d = $pos.depth; d > 0; d--) {

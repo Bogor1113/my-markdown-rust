@@ -1,6 +1,6 @@
 [package]
 name = "mymdedit"
-version = "1.0.87"
+version = "1.0.88"
 description = "波哥自研的 Markdown 桌面编辑器"
 authors = ["冬月十三"]
 edition = "2021"
@@ -22,6 +22,10 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# 同上：resolver v2 下 build-dep 图与普通依赖图的特性独立统一，
+# tauri-build→schemars(preserve_order)→indexmap 1.9.3 走的是 build-dep 图，
+# 必须在 build-dependencies 里也声明 std 才能让 has_std 生效。
+indexmap = { version = "1.9.3", features = ["std"] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "protocol-asset", "devtools", "custom-protocol"] }
@@ -42,6 +46,11 @@ webview2-com = "0.38"
 # PDF 导出：WebView2 COM（与 webview2-com 0.38 同源，统一到锁文件版本）
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
 docx-rs = "0.4.22"
+# 显式开启 indexmap 1.9.3 的 std 特性：schemars(preserve_order) 用它时依赖
+# IndexMap<K,V> 两参写法，要求 S 有默认值，而 S 默认值只在 std 分支存在；
+# rustc 1.98 下 autocfg 的 sysroot 探测失效导致 has_std 未打上（E0107）。
+# 声明直接依赖可利用 cargo 特性统一强制走 build.rs 的显式请求分支。
+indexmap = { version = "1.9.3", features = ["std"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

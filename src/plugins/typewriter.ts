@@ -17,18 +17,24 @@ export const typewriterPlugin = $prose(() => {
   let unsub: (() => void) | null = null
   let viewRef: EditorView | null = null
 
+  function clearActiveMarks() {
+    viewRef?.dom.querySelectorAll('.typewriter-active').forEach((n) => n.classList.remove('typewriter-active'))
+  }
+
   function apply() {
     const view = viewRef
     if (!view || view.isDestroyed) return
     const store = useAppStore.getState()
+    // 击键高频路径：专注模式关闭时零成本返回。
+    // 旧实现在这里先做一次全文档 querySelectorAll 再判断，等于每个字符
+    // 都白扫一遍 DOM 树。
+    if (!store.focusMode) return
     const rootEl = view.dom
     const container = rootEl.parentElement
     if (!container) return
 
     // 清除旧 active 标记
     rootEl.querySelectorAll('.typewriter-active').forEach((n) => n.classList.remove('typewriter-active'))
-
-    if (!store.focusMode) return
 
     // 查找选区所在块（.ProseMirror 的直接子元素）
     let el: HTMLElement | null = null
@@ -68,6 +74,8 @@ export const typewriterPlugin = $prose(() => {
       unsub = useAppStore.subscribe((s, prev) => {
         if (s.focusMode !== prev.focusMode) {
           document.documentElement.classList.toggle('typewriter-mode', s.focusMode)
+          // 关闭时清掉残留的段落高亮（apply 现在在关闭态直接返回，不再负责清理）
+          if (!s.focusMode) clearActiveMarks()
           apply()
         }
       })
@@ -81,6 +89,8 @@ export const typewriterPlugin = $prose(() => {
       return {
         update: (v, prev) => {
           if (v.state.selection.eq(prev.selection)) return
+          // 专注模式关闭时连 rAF 都不用排——apply 只会立刻返回
+          if (!useAppStore.getState().focusMode) return
           cancelAnimationFrame(raf)
           raf = requestAnimationFrame(() => apply())
         },

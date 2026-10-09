@@ -821,7 +821,7 @@ pub fn inject_outline(pdf_path: &str, entries: &[OutlineEntry]) -> Result<(), St
     // 3. 组装大纲树并写入对象
     let nodes = build_tree(&targets);
     let root_id = alloc_id(&mut doc);
-    let (first, last, _total) = write_nodes(&mut doc, &nodes, Some(root_id), &pages);
+    let (first, last, total) = write_nodes(&mut doc, &nodes, Some(root_id), &pages);
     let Some(first) = first else {
         return Err("大纲树为空".into());
     };
@@ -831,7 +831,9 @@ pub fn inject_outline(pdf_path: &str, entries: &[OutlineEntry]) -> Result<(), St
     if let Some(l) = last {
         root.set("Last", l);
     }
-    root.set("Count", nodes.len() as i64);
+    // 根 Outlines 的 /Count 按 PDF 规范（12.3.2.2）在全部展开时必须是
+    // **所有层级**的可见条目总数；写顶层条目数会让严格阅读器截断大纲树
+    root.set("Count", total as i64);
     doc.objects.insert(root_id, Object::Dictionary(root));
 
     // 4. 挂到文档目录（/Root → /Outlines）并保存
@@ -849,7 +851,11 @@ pub fn inject_outline(pdf_path: &str, entries: &[OutlineEntry]) -> Result<(), St
     // 避免 save 中途失败（如磁盘满）把刚打印好的 PDF 截断。
     let tmp_save = format!("{pdf_path}.outline.tmp");
     doc.save(&tmp_save).map_err(|e| format!("写回 PDF 失败：{e}"))?;
-    std::fs::rename(&tmp_save, pdf_path).map_err(|e| format!("替换 PDF 失败：{e}"))?;
+    if let Err(e) = std::fs::rename(&tmp_save, pdf_path) {
+        // rename 失败时清理临时文件，避免 .outline.tmp 残留在用户文档目录
+        let _ = std::fs::remove_file(&tmp_save);
+        return Err(format!("替换 PDF 失败：{e}"));
+    }
     Ok(())
 }
 

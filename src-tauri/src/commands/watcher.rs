@@ -30,6 +30,11 @@ fn is_noise_seg(seg: &str) -> bool {
 
 /// 临时/系统文件特征：编辑器临时锁文件、Office 解锁文件、缩略图等
 fn is_noise_filename(name: &str) -> bool {
+    // 本应用原子写的临时文件（.mymdedit-tmp-...）：每次保存都会产生
+    // create/rename 事件，全部是自产自销的噪音
+    if name.starts_with(".mymdedit-tmp-") {
+        return true;
+    }
     if name.starts_with('~') || name.starts_with('#') {
         return true;
     }
@@ -44,19 +49,21 @@ fn is_noise_filename(name: &str) -> bool {
 
 /// 路径是否为需要跳过的噪音：隐藏段（.git 等）/ 大依赖目录 / 临时文件。
 /// 事件过滤放 Rust 侧（而非只靠前端防抖），避免噪音事件持续占用 IPC 与 JS 主线程。
-fn is_noise_path(path: &Path) -> bool {
+///
+/// `root` 是监听根目录：只对**相对根的路径段**做隐藏段判断。
+/// 若检查全部祖先，根路径里含点开头的段（如 C:\Users\x\.config\notes）会让
+/// 该目录下所有事件的 parent 都命中隐藏段，监听器静默失效、永远收不到事件。
+fn is_noise_path(path: &Path, root: &Path) -> bool {
     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
         if is_noise_filename(name) {
             return true;
         }
     }
-    match path.parent() {
-        Some(parent) => parent.components().any(|c| match c {
-            std::path::Component::Normal(seg) => is_noise_seg(seg.to_string_lossy().as_ref()),
-            _ => false,
-        }),
-        None => false,
-    }
+    let rel = path.strip_prefix(root).unwrap_or(path);
+    rel.components().any(|c| match c {
+        std::path::Component::Normal(seg) => is_noise_seg(seg.to_string_lossy().as_ref()),
+        _ => false,
+    })
 }
 
 /// 开始递归监听指定目录；自动替换掉上一个监听器。
@@ -68,6 +75,7 @@ pub fn watch_directory(
     path: String,
 ) -> Result<(), String> {
     let app_for_emit = app.clone();
+    let root_for_filter = std::path::PathBuf::from(&path);
     let mut watcher = notify::recommended_watcher(
         move |res: Result<Event, notify::Error>| {
             let Ok(event) = res else { return };
@@ -88,7 +96,7 @@ pub fn watch_directory(
             let paths: Vec<String> = event
                 .paths
                 .iter()
-                .filter(|p| !is_noise_path(p))
+                .filter(|p| !is_noise_path(p, &root_for_filter))
                 .map(|p| p.to_string_lossy().to_string())
                 .collect();
             if paths.is_empty() {

@@ -42,7 +42,11 @@ export interface SettingsState {
 function loadNumber(key: string, fallback: number): number {
   try {
     const v = localStorage.getItem(key)
-    return v !== null ? Number(v) : fallback
+    if (v === null) return fallback
+    const n = Number(v)
+    // 损坏值（NaN/非数字串）回退默认：否则 fontSize=NaN 后 Math.max/min 链
+    // 无法自愈，字号调节从此失灵
+    return Number.isFinite(n) ? n : fallback
   } catch {
     return fallback
   }
@@ -83,7 +87,9 @@ applyFontSize(loadNumber(FONT_SIZE_KEY, 15))
 applyAtmosMotion(loadBoolean(ATMOS_MOTION_KEY, false))
 
 export const useSettingsStore = create<SettingsState>((set) => ({
-  fontSize: loadNumber(FONT_SIZE_KEY, 15),
+  // 启动加载同样夹紧到合法区间（set 路径有 clamp，load 路径之前没有：
+  // 存过 "99" 的旧数据会直接以 99px 应用）
+  fontSize: Math.max(10, Math.min(32, loadNumber(FONT_SIZE_KEY, 15))),
   setFontSize: (size) => {
     const clamped = Math.max(10, Math.min(32, size))
     localStorage.setItem(FONT_SIZE_KEY, String(clamped))

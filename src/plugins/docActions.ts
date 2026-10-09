@@ -94,9 +94,13 @@ export function insertToc(editor: Editor | null): boolean {
   return ok
 }
 
-/** 将当前文档的 Markdown 源码复制到剪贴板 */
+/** 将当前文档的 Markdown 源码复制到剪贴板。
+ *  读活动标签的 content（store 真源）：旧实现读 store.markdown——它只在
+ *  Milkdown 挂载期间维护，源码模式下停留在旧值/别的文件，复制出错误内容 */
 export async function copyMarkdownSource(): Promise<boolean> {
-  const md = useAppStore.getState().markdown
+  const { tabs, activeTabId } = useAppStore.getState()
+  const tab = tabs.find((t) => t.id === activeTabId)
+  const md = tab?.content ?? ''
   if (!md) return false
   try {
     await writeRichClipboard(md, md)

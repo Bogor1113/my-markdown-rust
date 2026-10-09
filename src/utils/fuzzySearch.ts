@@ -56,19 +56,18 @@ interface CachedEntry {
   name: string
 }
 
-/** 缓存 key：rootPath + fileTree 的引用 */
-let cachedKey = ''
-let cachedEntries: CachedEntry[] = []
+/** 缓存：以 fileTree 对象引用为键（store 每次 loadDirectory 都产出新对象） */
+const cacheMap = new WeakMap<Record<string, FileEntry[]>, { rootPath: string; entries: CachedEntry[] }>()
 
 function collectAllFilesCached(
   rootPath: string,
   fileTree: Record<string, FileEntry[]>,
 ): CachedEntry[] {
-  // 使用 rootPath + fileTree 引用作为缓存 key
-  // fileTree 引用在每次 loadDirectory 后会变化
-  const key = rootPath + '::' + (fileTree as unknown as number)
-  if (key === cachedKey && cachedEntries.length > 0) {
-    return cachedEntries
+  // 注意不能用字符串拼接做 key：对象参与拼接会被 toString 成 "[object Object]"，
+  // 与 fileTree 的引用/内容完全无关，缓存永不失效（新加载的目录永远搜不到）。
+  const hit = cacheMap.get(fileTree)
+  if (hit && hit.rootPath === rootPath && hit.entries.length > 0) {
+    return hit.entries
   }
 
   const entries: CachedEntry[] = []
@@ -89,8 +88,7 @@ function collectAllFilesCached(
   }
 
   walk(rootPath)
-  cachedKey = key
-  cachedEntries = entries
+  cacheMap.set(fileTree, { rootPath, entries })
   return entries
 }
 

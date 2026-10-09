@@ -1,24 +1,34 @@
 import { $prose } from '@milkdown/kit/utils'
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
+import type { EditorView } from '@milkdown/kit/prose/view'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 
 let mermaidLib: any = null
 let mermaidIdCounter = 0
+/** mermaid.initialize 当前生效的主题（init 只需在主题变化时重跑） */
+let initializedTheme = ''
+
+function currentMermaidTheme(): string {
+  const t = document.documentElement.getAttribute('data-theme')
+  return t === 'light' || t === 'paper' ? 'default' : 'dark'
+}
 
 async function getMermaid() {
   if (!mermaidLib) {
     const mod = await import('mermaid')
     mermaidLib = (mod as any).default || mod
+  }
+  // 每次渲染前核对主题：旧实现只在首次 import 时 initialize 一次，
+  // 主题被永久固定，切换亮/暗后图表永远是旧配色。
+  const theme = currentMermaidTheme()
+  if (theme !== initializedTheme) {
     mermaidLib.initialize({
       startOnLoad: false,
-      theme:
-        document.documentElement.getAttribute('data-theme') === 'light' ||
-        document.documentElement.getAttribute('data-theme') === 'paper'
-          ? 'default'
-          : 'dark',
+      theme,
       securityLevel: 'strict',
     })
+    initializedTheme = theme
   }
   return mermaidLib
 }
@@ -39,8 +49,35 @@ async function getMermaid() {
  *    交给 Decoration.widget（传元素而非函数），ProseMirror 的 eq 判定为相同，
  *    连 DOM 都不会重建。
  */
-const SVG_CACHE_LIMIT = 60
+/** 渲染结果缓存上限。单张 mermaid SVG 字符串可达数十 KB，60 张时最坏可积到
+ *  数 MB 的常驻字符串；真实文档同时需要的去重图表很少，24 张已经富余。 */
+const SVG_CACHE_LIMIT = 24
 const svgCache = new Map<string, string>()
+/**
+ * 渲染纪元：主题切换时 +1，widget 缓存里旧纪元的 DOM 全部作废重建
+ * （仅清 svgCache 不够——同位置同源码的 widget 会直接复用旧主题的容器 DOM）。
+ */
+let renderEpoch = 0
+
+/** 存活的编辑器视图：主题切换时派发空事务触发 decorations 重算 */
+const liveViews = new Set<EditorView>()
+
+/**
+ * 主题切换后调用（applyTheme）：旧主题的 SVG 全部失效，
+ * 所有存活的 mermaid 图按新主题重新渲染。
+ */
+export function refreshMermaidTheme() {
+  // mermaid 尚未加载（还没渲染过图）：无需处理，首次渲染自动按当前主题
+  if (!mermaidLib) return
+  if (currentMermaidTheme() === initializedTheme) return
+  svgCache.clear()
+  renderEpoch++
+  for (const view of liveViews) {
+    if (view.isDestroyed) continue
+    // 空事务（无 doc 变更）驱动 decorations 重算 → build 检测到 epoch 变化重建 widget
+    view.dispatch(view.state.tr)
+  }
+}
 
 function renderInto(container: HTMLElement, code: string, id: string) {
   const cached = svgCache.get(code)
@@ -81,15 +118,16 @@ const key = new PluginKey('mermaid-render')
 export const mermaidPlugin = $prose(() => {
   /** 上一次计算时的 doc 引用（内容未变则完全复用，光标移动零成本） */
   let lastDoc: PMNode | null = null
+  let lastEpoch = renderEpoch
   let lastSet: DecorationSet = DecorationSet.empty
-  /** 位置 → (源码, 容器DOM)，每次重算时重建，天然完成了失效项的回收 */
-  let widgets = new Map<number, { code: string; el: HTMLElement }>()
+  /** 位置 → (源码, 纪元, 容器DOM)，每次重算时重建，天然完成了失效项的回收 */
+  let widgets = new Map<number, { code: string; epoch: number; el: HTMLElement }>()
 
   const build = (state: { doc: PMNode }): DecorationSet => {
-    // 快路径：doc 引用未变（光标移动、选区变化）→ 直接复用上一份
-    if (state.doc === lastDoc) return lastSet
+    // 快路径：doc 引用未变且主题纪元未变（光标移动、选区变化）→ 直接复用上一份
+    if (state.doc === lastDoc && lastEpoch === renderEpoch) return lastSet
 
-    const next = new Map<number, { code: string; el: HTMLElement }>()
+    const next = new Map<number, { code: string; epoch: number; el: HTMLElement }>()
     const decos: Decoration[] = []
 
     state.doc.descendants((node, pos) => {
@@ -100,8 +138,8 @@ export const mermaidPlugin = $prose(() => {
       const prev = widgets.get(pos)
       let el: HTMLElement
 
-      if (prev && prev.code === code) {
-        // 同一位置 + 同一源码 → 连 DOM 元素一起复用
+      if (prev && prev.code === code && prev.epoch === renderEpoch) {
+        // 同一位置 + 同一源码 + 同一主题纪元 → 连 DOM 元素一起复用
         el = prev.el
       } else {
         el = document.createElement('div')
@@ -109,13 +147,14 @@ export const mermaidPlugin = $prose(() => {
         el.dataset.mermaidId = `mermaid-${++mermaidIdCounter}`
         renderInto(el, code, el.dataset.mermaidId)
       }
-      next.set(pos, { code, el })
+      next.set(pos, { code, epoch: renderEpoch, el })
       // 传 DOM 元素而非函数：位置未变时 ProseMirror 判定 widget 相等，不重建 DOM
       decos.push(Decoration.widget(pos, el, { side: 1 }))
     })
 
     widgets = next
     lastDoc = state.doc
+    lastEpoch = renderEpoch
     lastSet = decos.length === 0 ? DecorationSet.empty : DecorationSet.create(state.doc, decos)
     return lastSet
   }
@@ -125,13 +164,18 @@ export const mermaidPlugin = $prose(() => {
     props: {
       decorations: build,
     },
-    view: () => ({
-      destroy: () => {
-        widgets = new Map()
-        lastDoc = null
-        lastSet = DecorationSet.empty
-        svgCache.clear()
-      },
-    }),
+    view: (view) => {
+      liveViews.add(view)
+      return {
+        destroy: () => {
+          liveViews.delete(view)
+          widgets = new Map()
+          lastDoc = null
+          lastEpoch = renderEpoch
+          lastSet = DecorationSet.empty
+          svgCache.clear()
+        },
+      }
+    },
   })
 })

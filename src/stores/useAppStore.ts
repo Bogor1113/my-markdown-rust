@@ -39,6 +39,9 @@ const THEME_KEY = 'mditor-theme'
 /** 会话记忆：记住上次打开的目录/文件，下次启动自动恢复 */
 const SESSION_KEY = 'mditor-session'
 
+/** 全文搜索请求序号：丢弃慢查询的过期响应（见 runSearch） */
+let runSearchSeq = 0
+
 /** 最近文件列表持久化键 */
 const RECENT_FILES_KEY = 'mditor-recent-files'
 
@@ -56,6 +59,9 @@ interface SessionData {
   openPaths: string[]
   activePath: string | null
   expandedDirs: string[]
+  /** 以源码模式打开的文件路径（恢复会话时回填，否则 >10MB 文件重启后被
+   *  WYSIWYG 全量 parse/渲染冻结数秒，击穿大文件保护） */
+  sourceModePaths?: string[]
 }
 
 function readSession(): SessionData | null {
@@ -64,7 +70,19 @@ function readSession(): SessionData | null {
     if (!raw) return null
     const data = JSON.parse(raw) as SessionData
     if (!data || !Array.isArray(data.openPaths)) return null
-    return data
+    // 逐字段类型校验：localStorage 被部分写入/旧版本 schema 变更时，
+    // new Set(非数组) 会在 restoreSession 里同步抛 TypeError，
+    // 连带打断启动参数打开文件的链路（双击 .md 无法打开且无任何提示）
+    if (typeof data.rootPath !== 'string' && data.rootPath !== null) return null
+    if (typeof data.activePath !== 'string' && data.activePath !== null) return null
+    return {
+      rootPath: data.rootPath,
+      openPaths: data.openPaths.filter((p): p is string => typeof p === 'string'),
+      activePath: data.activePath,
+      expandedDirs: Array.isArray(data.expandedDirs)
+        ? data.expandedDirs.filter((p): p is string => typeof p === 'string')
+        : [],
+    }
   } catch {
     return null
   }
@@ -124,6 +142,7 @@ function persistSession() {
     openPaths: [...new Set(s.tabs.map((t) => t.path))],
     activePath: s.activeTabId,
     expandedDirs: [...s.expandedDirs],
+    sourceModePaths: s.tabs.filter((t) => t.sourceMode).map((t) => t.path),
   })
 }
 
@@ -146,6 +165,8 @@ function applyTheme(t: Theme) {
   } catch {
     /* ignore */
   }
+  // mermaid 图表按主题配色渲染：切主题后让所有图表按新主题重绘
+  void import('../plugins/mermaid').then((m) => m.refreshMermaidTheme())
 }
 
 /** 自动保存：停止编辑 30s 后落盘（防抖，避免每敲一个字就重写整个文件） */
@@ -350,6 +371,8 @@ interface AppState {
   closeTabs: (ids: string[]) => void
   setActiveTab: (id: string) => void
   updateContent: (id: string, content: string) => void
+  /** 切换指定标签（默认活动标签）的源码模式；非 Markdown 标签无效 */
+  toggleSourceMode: (id?: string) => void
   saveCurrentFile: () => Promise<void>
   /** 保存指定标签的文件（供自动保存使用） */
   saveTab: (tabId: string) => Promise<void>
@@ -475,11 +498,15 @@ export const useAppStore = create<AppState>()(
   runSearch: async (query) => {
     const root = get().rootPath
     if (!root || !query.trim()) return
+    // 序号守卫：慢查询后返回会覆盖新查询的结果（先发慢 A 再发快 B，B 先渲染后被 A 覆盖）
+    const seq = ++runSearchSeq
     set({ searchQuery: query, searchSearching: true })
     try {
       const results = await searchFiles(root, query.trim(), 200)
+      if (seq !== runSearchSeq) return
       set({ searchResults: results.filter((r) => isMarkdown(r.path)), searchSearching: false })
     } catch {
+      if (seq !== runSearchSeq) return
       set({ searchResults: [], searchSearching: false })
     }
   },
@@ -661,8 +688,15 @@ export const useAppStore = create<AppState>()(
       set({ expandedDirs: next })
     } else {
       if (!s.fileTree[path]) {
-        const entries = await listDirectory(path)
-        set((s2) => ({ fileTree: { ...s2.fileTree, [path]: entries } }))
+        // 目录可能在渲染后被删除/移动/权限变化：不捕获会产生 Unhandled Rejection，
+        // 且点击看起来毫无反应
+        try {
+          const entries = await listDirectory(path)
+          set((s2) => ({ fileTree: { ...s2.fileTree, [path]: entries } }))
+        } catch (e) {
+          get().showToast(`无法读取目录：${e}`)
+          return
+        }
       }
       set((s2) => ({ expandedDirs: new Set(s2.expandedDirs).add(path) }))
     }
@@ -680,6 +714,7 @@ export const useAppStore = create<AppState>()(
     if (existing) {
       set({ activeTabId: existing.id, docVersion: s.docVersion + 1 })
       get().addRecentFile(path)
+      persistSession()
       return
     }
 
@@ -715,6 +750,10 @@ export const useAppStore = create<AppState>()(
       return
     }
     const name = path.split('\\').pop()?.split('/').pop() || path
+    // 走到这里且 >10MB，意味着用户已确认（或无人工交互路径跳过了确认）——
+    // 以源码模式打开：不加载 Milkdown，秒开；此前弹窗文案承诺了这一点但
+    // 实际仍走 WYSIWYG，属虚假承诺，这里补齐。
+    const openAsSource = size > 10 * MB
     const tab: Tab = {
       id: path,
       path,
@@ -722,12 +761,20 @@ export const useAppStore = create<AppState>()(
       content,
       savedContent: content,
       isDirty: false,
+      sourceMode: openAsSource || undefined,
     }
-    set((s2) => ({
-      tabs: [tab, ...s2.tabs],
-      activeTabId: tab.id,
-      docVersion: s2.docVersion + 1,
-    }))
+    set((s2) => {
+      // 并发去重：快速双击同一文件时，两次 openFile 都会越过开头的 existing 检查
+      //（各自 await fileSize/readFile 期间 tabs 还是空的），插入前再查一次，
+      // 否则会出现两个 id/path 完全相同的标签
+      const dup = s2.tabs.find((t) => t.path === path)
+      if (dup) return { activeTabId: dup.id, docVersion: s2.docVersion + 1 }
+      return {
+        tabs: [tab, ...s2.tabs],
+        activeTabId: tab.id,
+        docVersion: s2.docVersion + 1,
+      }
+    })
     get().addRecentFile(path)
     persistSession()
   },
@@ -805,6 +852,27 @@ export const useAppStore = create<AppState>()(
     })
     // 内容变化后安排自动保存（见 scheduleAutosave：30s 防抖 + 60s 强制落盘上限）
     scheduleAutosave()
+  },
+
+  toggleSourceMode: (id) => {
+    const s = get()
+    const tabId = id ?? s.activeTabId
+    if (!tabId) return
+    const tab = s.tabs.find((t) => t.id === tabId)
+    if (!tab) return
+    // 大文件保护：>10MB 的文件禁止切回 WYSIWYG（Milkdown 全量 parse/渲染会
+    // 冻结界面数秒以上，等于绕过 openFile 的确认弹窗）
+    if (tab.sourceMode && tab.content.length > 10 * 1024 * 1024) {
+      get().showToast('文件过大（>10MB），不支持切换到所见即所得模式')
+      return
+    }
+    // 切换前收起依赖编辑器的浮层：findOpen 若滞留，源码模式下 Ctrl+F 无处
+    // 显示、切回 WYSIWYG 时面板会闪现一帧又消失
+    if (s.findOpen) get().closeFind()
+    if (s.contextMenu) get().hideContextMenu()
+    set({
+      tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, sourceMode: !t.sourceMode } : t)),
+    })
   },
 
   saveCurrentFile: async () => {
@@ -885,9 +953,24 @@ export const useAppStore = create<AppState>()(
       } catch {
         /* 目录不存在：保持 rootPath 显示，用户可重新选择 */
       }
+      // 恢复上次展开的子目录内容：不加载的话这些目录重启后是
+      // 「展开箭头 + 空内容」，必须折叠再展开才能看到文件
+      await Promise.all(
+        data.expandedDirs
+          .filter((dir) => dir !== data.rootPath && dir.startsWith(data.rootPath!))
+          .map(async (dir) => {
+            try {
+              const entries = await listDirectory(dir)
+              set((s) => ({ fileTree: { ...s.fileTree, [dir]: entries } }))
+            } catch {
+              /* 子目录已不存在：跳过 */
+            }
+          }),
+      )
     }
 
     // 2. 重新读取上次打开的文件（并行读取提速，单个失败跳过，不阻塞整体恢复）
+    const sourceModePaths = new Set(data.sourceModePaths ?? [])
     const results = await Promise.all(
       data.openPaths.map(async (path): Promise<{ tab: Tab; isActive: boolean } | null> => {
         try {
@@ -900,6 +983,9 @@ export const useAppStore = create<AppState>()(
             content,
             savedContent: content,
             isDirty: false,
+            // 恢复上次会话的源码模式；兜底：内容超 10MB 强制源码（纠正旧会话
+            // 数据缺失 / 用户在别处改动导致文件变大的场景）
+            sourceMode: sourceModePaths.has(path) || content.length > 10 * 1024 * 1024 || undefined,
           }
           return { tab, isActive: path === data.activePath }
         } catch {

@@ -41,7 +41,11 @@ export const footnotePlugin = $prose(() => {
 
     // 脚注引用：遍历行内文本节点查找 [^label]
     state.doc.descendants((node, pos) => {
+      // 代码块是示例文本不是脚注引用，整棵子树跳过
+      if (node.type.name === 'code_block') return false
       if (node.isText) {
+        // 行内代码（code mark）里的 [^x] 同样只是示例
+        if (node.marks.some((m) => m.type.name === 'code')) return true
         const text = node.text || ''
         const re = /\[\^([^\]]+)\]/g
         let match: RegExpExecArray | null

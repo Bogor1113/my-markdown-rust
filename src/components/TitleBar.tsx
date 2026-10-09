@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
@@ -10,25 +10,40 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
  * 工具栏按钮通过 children 注入到标题与窗口控制按钮之间。
  */
 export default function TitleBar({ children }: { children?: ReactNode }) {
-  const appWindow = getCurrentWindow()
+  // getCurrentWindow() 每次调用返回新实例：放组件体里裸调用会让 appWindow 每次
+  // 渲染都是新引用，effect 每帧重建监听；且快速连续重渲染时旧 promise 尚未
+  // resolve、unlisten 未赋值就被 cleanup 跳过 → 监听器永久泄漏。useMemo 固定实例。
+  const appWindow = useMemo(() => getCurrentWindow(), [])
   const [maximized, setMaximized] = useState(false)
 
   useEffect(() => {
     let unlisten: (() => void) | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let disposed = false
     const sync = () => {
-      appWindow.isMaximized().then(setMaximized).catch(() => {})
+      appWindow.isMaximized().then((v) => { if (!disposed) setMaximized(v) }).catch(() => {})
+    }
+    // onResized 在拖拽边缘调整窗口大小时每秒触发几十次，每次都发一轮
+    // isMaximized() IPC 往返。最大化状态切换只在拖拽告一段落后确认即可，
+    // 防抖 150ms 把事件风暴压成一次。
+    const debounced = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(sync, 150)
     }
     sync()
     appWindow
-      .onResized(sync)
+      .onResized(debounced)
       .then((fn) => {
-        unlisten = fn
+        if (disposed) fn()
+        else unlisten = fn
       })
       .catch(() => {})
     return () => {
+      disposed = true
       unlisten?.()
+      if (timer) clearTimeout(timer)
     }
-  }, [appWindow])
+  }, [])
 
   return (
     <div className="titlebar">

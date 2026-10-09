@@ -35,6 +35,7 @@ import { emojiAutocompletePlugin } from '../../plugins/emojiAutocomplete'
 import { excelPastePlugin } from '../../plugins/excelPaste'
 import { footnotePlugin } from '../../plugins/footnote'
 import { tablePlugin } from '../../plugins/table'
+import { tableClipboardPlugin } from '../../plugins/tableClipboard'
 import { tableDragReorderPlugin } from '../../plugins/tableDragReorder'
 import { taskTogglePlugin } from '../../plugins/taskToggle'
 import { typewriterPlugin } from '../../plugins/typewriter'
@@ -282,6 +283,7 @@ const editorRef = useRef<Editor | null>(null)
       .use(excelPastePlugin)
       .use(footnotePlugin)
       .use(tablePlugin)
+      .use(tableClipboardPlugin)
       .use(tableDragReorderPlugin)
       .use(taskTogglePlugin)
       .use(typewriterPlugin)

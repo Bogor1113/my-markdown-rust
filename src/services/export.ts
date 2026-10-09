@@ -11,6 +11,7 @@ import { editorViewCtx } from '@milkdown/kit/core'
 import type { Editor } from '@milkdown/kit/core'
 import { save } from '@tauri-apps/plugin-dialog'
 import { readFileBytes, writeFile, fileSize, bytesToBase64 } from './fs'
+import { toLocalAbsPath } from './imageDisplay'
 import { parentDirOf, joinPath, basenameOf } from '../utils/files'
 
 /** 转义 HTML 特殊字符（用于标题等） */
@@ -82,23 +83,35 @@ async function embedImages(root: HTMLElement, docPath: string): Promise<void> {
   await Promise.all(
     imgs.map(async (img) => {
       const src = img.getAttribute('src')
-      if (!src || /^(https?:|data:)/i.test(src)) return
+      if (!src || /^data:/i.test(src)) return
 
-      // 去掉 file:// 前缀（Windows 上为 file:///C:/...）
-      let filePath = src
-      if (filePath.startsWith('file://')) {
-        filePath = filePath.slice('file://'.length)
-        if (filePath.startsWith('/')) filePath = filePath.slice(1)
-      }
-      // 解码 URL 编码（如 %20 空格），失败则保留原样
-      try {
-        filePath = decodeURIComponent(filePath)
-      } catch {
-        /* 保留原样 */
-      }
-      // 非绝对路径 → 相对文档目录拼接
-      if (!/^[A-Za-z]:[\\/]/.test(filePath)) {
-        filePath = joinPath(docDir, filePath)
+      // 解析为本地路径。关键：编辑器渲染时 img src 已被 toDisplayImageSrc 改写成
+      // asset://…/http://asset.localhost/… 显示地址（WebView 才能加载本地文件），
+      // 若不还原，旧逻辑按 `http:` 前缀整体跳过 → 导出的 HTML 里全部本地图裂图。
+      // toLocalAbsPath 同时处理 asset 还原、Windows 盘符/UNC 绝对路径与相对路径。
+      let filePath = toLocalAbsPath(src)
+      if (filePath == null) {
+        if (/^https?:/i.test(src)) return
+        filePath = src
+        if (filePath.startsWith('file://')) {
+          filePath = filePath.slice('file://'.length)
+          if (/^\/[A-Za-z]:/.test(filePath)) {
+            filePath = filePath.slice(1) // file:///C:/... → C:/...
+          } else if (!filePath.startsWith('/')) {
+            // file://server/share/... → UNC：还原 \\server\share\...
+            filePath = '\\\\' + filePath.replace(/\//g, '\\')
+          }
+        }
+        // 解码 URL 编码（如 %20 空格），失败则保留原样
+        try {
+          filePath = decodeURIComponent(filePath)
+        } catch {
+          /* 保留原样 */
+        }
+        // 非绝对路径 → 相对文档目录拼接（含 UNC 网络路径 \\server\share）
+        if (!/^(?:[A-Za-z]:[\\/]|\\\\|\/\/)/.test(filePath)) {
+          filePath = joinPath(docDir, filePath)
+        }
       }
 
       const ext = filePath.split('.').pop()?.toLowerCase() || ''

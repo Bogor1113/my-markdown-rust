@@ -105,6 +105,19 @@ export const emojiAutocompletePlugin = $prose(() => {
   const popup = new EmojiPopup()
   let colonPos = -1
 
+  /**
+   * 把 `:query` 替换为选中的 emoji。
+   * popup.startPos 是冒号的**文档绝对位置**（colonPos = 插入点 + 1），
+   * 替换区间 = [冒号, 当前光标)；两端均用绝对坐标，
+   * 不能再叠加 $from.start()（历史上重复累加导致非首段替换位置错乱甚至 RangeError）。
+   */
+  const replaceWithEmoji = (view: EditorView, emoji: string) => {
+    const $cur = view.state.selection.$from
+    const absStart = Math.min(popup.startPos, $cur.pos)
+    const absEnd = $cur.pos
+    view.dispatch(view.state.tr.insertText(emoji, absStart, absEnd))
+  }
+
   return new Plugin({
     key,
     view(view: EditorView) {
@@ -125,25 +138,22 @@ export const emojiAutocompletePlugin = $prose(() => {
         if (text === ':') {
           colonPos = from + 1
           setTimeout(() => {
-            popup.show(view, colonPos, '', (emoji) => {
-              const $cur = view.state.selection.$from
-              const absStart = $cur.start() + popup.startPos - 1
-              const absEnd = $cur.start() + $cur.parentOffset
-              view.dispatch(view.state.tr.insertText(emoji, absStart, absEnd))
-            })
+            popup.show(view, colonPos, '', (emoji) => replaceWithEmoji(view, emoji))
           }, 0)
           return false
         }
 
         if (colonPos >= 0 && popup.isVisible) {
-          const query = $from.parent.textContent.slice(popup.startPos - 1, $from.parentOffset)
+          // query 取「冒号之后 → 当前光标」的文本。
+          // textContent 的下标是块内相对位置，需减去块内容起点 $from.start()；
+          // 且当前这次输入的字符尚未插入，parentOffset 不含它，天然只统计已输入部分。
+          const queryStart = popup.startPos - $from.start() + 1
+          const query =
+            queryStart >= 0
+              ? $from.parent.textContent.slice(queryStart, $from.parentOffset)
+              : ''
           if (!query.includes(' ')) {
-            popup.show(view, popup.startPos, query, (emoji) => {
-              const $cur = view.state.selection.$from
-              const absStart = $cur.start() + popup.startPos - 1
-              const absEnd = $cur.start() + $cur.parentOffset
-              view.dispatch(view.state.tr.insertText(emoji, absStart, absEnd))
-            })
+            popup.show(view, popup.startPos, query, (emoji) => replaceWithEmoji(view, emoji))
             return false
           }
           popup.hide(); colonPos = -1

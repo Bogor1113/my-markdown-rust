@@ -12,7 +12,7 @@ rem  Output: src-tauri\target\debug\mymdedit.exe
 rem ============================================================
 
 set "ROOT=%~dp0"
-set "PNPM=C:\Users\jy\AppData\Roaming\npm\pnpm.cmd"
+set "TAURI=%ROOT%node_modules\.bin\tauri.cmd"
 
 echo.
 echo ============================================
@@ -20,15 +20,15 @@ echo   MyMdEdit Debug Build (VITE_AUTO_DEVTOOLS=1)
 echo ============================================
 echo.
 
-if not exist "%PNPM%" (
-    echo [ERROR] pnpm not found at %PNPM%
+if not exist "%TAURI%" (
+    echo [ERROR] tauri CLI not found at %TAURI%
     goto :fail
 )
 
 set VITE_AUTO_DEVTOOLS=1
 
 echo [1/1] Building debug exe (no NSIS bundle)...
-call "%PNPM%" tauri build --debug --no-bundle
+call "%TAURI%" build --debug --no-bundle
 if errorlevel 1 goto :fail
 
 echo.

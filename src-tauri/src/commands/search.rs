@@ -302,17 +302,13 @@ fn replace_ci(content: &str, query: &str, replacement: &str) -> (String, usize) 
 
     let mut positions: Vec<usize> = Vec::new();
     let mut i = 0;
+    // 整串小写化后比较，与搜索侧 line_match_utf16 的慢路径语义完全一致。
+    // 旧实现逐字符只比较 to_lowercase 的第一个字符，'İ' 这类小写化变长的字符
+    // 会让「搜索预览 N 处、实际替换 N+M 处」（普通 i 也被误判命中并改写）。
+    let query_lower = query.to_lowercase();
     while i + query_len <= content_chars.len() {
-        let mut matched = true;
-        for (j, &qc) in query_chars.iter().enumerate() {
-            let mut it = content_chars[i + j].to_lowercase();
-            // to_lowercase 可能产生多字符（如 'İ'），逐字符比对而不是拼串
-            if it.next() != qc.to_lowercase().next() || it.next().is_some() {
-                matched = false;
-                break;
-            }
-        }
-        if matched {
+        let seg: String = content_chars[i..i + query_len].iter().collect();
+        if seg.to_lowercase() == query_lower {
             positions.push(i);
             i += query_len;
         } else {

@@ -276,8 +276,24 @@ const startSvgResize = (
     return { w: Math.round(w), h: Math.round(h) }
   }
 
-  const onMove = (ev: MouseEvent) => apply(ev.clientX, ev.clientY, ev.shiftKey)
+  // mousemove 每帧最多应用一次：直接在 onMove 里写 style 会每条事件同步 reflow，
+  // 大 SVG 拖拽卡顿（与 image.ts 缩放同款 RAF 节流）。
+  let raf = 0
+  let pending: { x: number; y: number; shift: boolean } | null = null
+  const applyPending = () => {
+    raf = 0
+    if (!pending) return
+    const { x, y, shift } = pending
+    pending = null
+    apply(x, y, shift)
+  }
+  const onMove = (ev: MouseEvent) => {
+    pending = { x: ev.clientX, y: ev.clientY, shift: ev.shiftKey }
+    if (!raf) raf = requestAnimationFrame(applyPending)
+  }
   const onUp = (ev: MouseEvent) => {
+    if (raf) { cancelAnimationFrame(raf); raf = 0 }
+    pending = null
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
     document.body.classList.remove('mditor-resizing')
@@ -474,6 +490,9 @@ export const htmlSvgEditPlugin = $prose(() => {
             showToast('保存失败：未能定位图片 src')
             return false
           }
+          // 回写结果的校验必须在 next 计算之后：原实现把 (value, value) 传入恒为 true，
+          // 防止「SVG 源码在回写中丢失」的保险在该路径上是死代码。
+          if (!guardSvgPreserved(value, next, showToast)) return false
           const ok = commitNodeValue(view, nodePos, next, showToast)
           if (ok) showToast('SVG 已更新')
           return ok

@@ -12,6 +12,8 @@ export interface Tab {
   content: string
   savedContent: string
   isDirty: boolean
+  /** 源码模式：直接编辑原始 Markdown 文本（不加载 Milkdown 编辑器） */
+  sourceMode?: boolean
 }
 
 export interface OutlineItem {

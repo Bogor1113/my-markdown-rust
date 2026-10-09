@@ -361,7 +361,10 @@ function deleteTableCol(pos?: number) {
     const view = ctx.get(editorViewCtx)
     if (!view) return false
     if (pos != null) {
-      const near = TextSelection.near(view.state.doc.resolve(pos), 1)
+      // clamp 到文档范围内：菜单打开期间编辑器仍可打字/删除，pos 可能已越界，
+      // 直接 resolve 会抛 RangeError 中断动作
+      const at = Math.max(0, Math.min(pos, view.state.doc.content.size))
+      const near = TextSelection.near(view.state.doc.resolve(at), 1)
       view.dispatch(view.state.tr.setSelection(near))
     }
     deleteColumn(view.state, view.dispatch)
@@ -545,7 +548,9 @@ function deleteTable(pos?: number) {
   editor.action((ctx) => {
     const view = ctx.get(editorViewCtx)
     if (!view) return false
-    const $pos = view.state.doc.resolve(pos)
+    // clamp：菜单打开期间文档可能已被键盘编辑改变，pos 越界时 resolve 会抛错
+    const at = Math.max(0, Math.min(pos, view.state.doc.content.size))
+    const $pos = view.state.doc.resolve(at)
     for (let d = $pos.depth; d >= 0; d--) {
       const node = d === 0 ? $pos.doc : $pos.node(d)
       if (node.type.name === 'table') {
@@ -617,7 +622,9 @@ async function insertLocalImage() {
     const src = await saveImageToAssets(name, mime, bytes)
     if (src) run(insertImageCommand, { src, alt: name, title: '' })
   } catch (e) {
+    // 失败必须给用户反馈（文件被移动/磁盘写入失败等），不能只写 console 静默吞掉
     console.error('Failed to insert local image:', e)
+    useAppStore.getState().showToast(`插入图片失败：${e}`)
   }
 }
 

@@ -65,6 +65,11 @@ export const svgSourceEditorPlugin = new Plugin<{ open: boolean }>({
     },
   },
   props: {},
+  // 兜底：弹窗开着时编辑器被销毁（关最后一个标签等），docChanged 收起路径
+  // 再也不会触发，必须在插件销毁时把挂在 body 上的浮层一并摘掉。
+  view: () => ({
+    destroy: () => removePersistentRoot(),
+  }),
 })
 
 /** 编辑器上下文：应用成功时同步序列化当前文档并显式落盘（见 applySaveNow） */
@@ -268,8 +273,10 @@ export const openSvgSourceEditor = (view: EditorView, opts: OpenOptions) => {
 
 /** 收起当前 SVG 源码编辑弹窗 */
 export const closeSvgSourceEditor = (view: EditorView) => {
-  if (view.isDestroyed) return
+  // 先摘浮层再判断 view：编辑器销毁（关标签/组件卸载）时若先 return，
+  // 挂在 body 上的遮罩会永久残留且所有关闭路径都进不来，整个界面被挡死。
   removePersistentRoot()
+  if (view.isDestroyed) return
   if (svgSourceEditorKey.getState(view.state)?.open) {
     view.dispatch(view.state.tr.setMeta(svgSourceEditorKey, false))
   }

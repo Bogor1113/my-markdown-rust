@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '../../stores/settings'
-import { useShortcutsStore, SHORTCUT_LIST } from '../../stores/shortcuts'
+import { useAppStore } from '../../stores/useAppStore'
+import { useShortcutsStore, SHORTCUT_LIST, getShortcutConflict } from '../../stores/shortcuts'
 
 /* ── 快捷键录入按钮 ── */
 
@@ -31,6 +32,11 @@ function KeyCaptureButton({ currentKey, onCapture }: { currentKey: string; onCap
 
       const key = e.key
       if (['Control', 'Alt', 'Shift', 'Meta'].includes(key)) return
+      // Esc 取消录入（与 UI 提示一致）：否则 Esc 被捕获成快捷键且全局 Esc 失效
+      if (key === 'Escape') {
+        setCapturing(false)
+        return
+      }
 
       parts.push(key.length === 1 ? key.toUpperCase() : key)
       onCaptureRef.current(parts.join('+'))
@@ -72,6 +78,7 @@ const SettingsModal = () => {
 
   const overrides = useShortcutsStore((s) => s.overrides)
   const setOverride = useShortcutsStore((s) => s.setOverride)
+  const showToast = useAppStore((s) => s.showToast)
   const resetAll = useShortcutsStore((s) => s.resetAll)
   const getKey = useShortcutsStore((s) => s.getKey)
 
@@ -220,7 +227,14 @@ const SettingsModal = () => {
                       )}
                       <KeyCaptureButton
                         currentKey={currentKey}
-                        onCapture={(key) => setOverride(def.id, key)}
+                        onCapture={(key) => {
+                          const conflict = getShortcutConflict(def.id, key)
+                          if (conflict) {
+                            showToast(`该按键已分配给「${conflict}」，请先更换或还原那条快捷键`)
+                          } else {
+                            setOverride(def.id, key)
+                          }
+                        }}
                       />
                     </div>
                   </div>

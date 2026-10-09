@@ -4,6 +4,7 @@ import { useShortcutsStore } from '../../stores/shortcuts'
 // 懒加载编辑器：katex + lowlight 代码高亮等重型依赖只随编辑器一起加载，
 // 无文档打开时（如纯冷启动欢迎页）避免解析这 ~1.2MB 的启动开销；首次打开后即有缓存。
 const MilkdownEditor = lazy(() => import('./MilkdownEditor'))
+const SourceEditor = lazy(() => import('./SourceEditor'))
 import FindReplace from '../FindReplace'
 import StatusBar from '../StatusBar/StatusBar'
 import RecentFiles from '../RecentFiles/RecentFiles'
@@ -20,6 +21,8 @@ const EditorArea = () => {
 
   const activeTab = tabs.find((t) => t.id === activeTabId)
   const isMd = activeTab ? isMarkdown(activeTab.path) : false
+  /** 源码模式（按标签记忆）：直接编辑原始 Markdown，Milkdown 编辑器整体卸载 */
+  const sourceMode = isMd && !!activeTab?.sourceMode
 
   // ref 保持最新值，让 handleKeyDown 稳定（避免每次输入都解绑/重绑 window 监听）
   const saveRef = useRef(saveCurrentFile)
@@ -43,16 +46,24 @@ const EditorArea = () => {
     const needAlt = parts.includes('Alt')
     const needMeta = parts.includes('Meta')
     const mainKey = parts[parts.length - 1]
-    if (needCtrl !== (e.ctrlKey || e.metaKey)) return false
+    // 每个修饰键严格匹配；Ctrl 与 Meta 不互相放行（旧写法把 Meta 并入 Ctrl，
+    // 导致含 Meta 的绑定永远不匹配、或 Ctrl 绑定误吃 Cmd 按键）
+    if (needCtrl !== e.ctrlKey) return false
     if (needShift !== e.shiftKey) return false
     if (needAlt !== e.altKey) return false
     if (needMeta !== e.metaKey) return false
-    const ek = mainKey.length === 1 ? mainKey.toLowerCase() : mainKey
-    return e.key.toLowerCase() === ek || e.code === `Key${mainKey.toUpperCase()}`
+    // 主键统一小写比较：多字符键名（F11/Enter/方向键）旧写法不做小写化，
+    // e.key 是 'f11' 而 mainKey 是 'F11' → 永远不等，F11 全屏从未生效过
+    return e.key.toLowerCase() === mainKey.toLowerCase()
   }, [])
+
+  // 有模态弹窗（自绘 prompt 等）打开时屏蔽全局快捷键：
+  // 否则弹窗内按 Esc 会「关弹窗 + 退全屏」双重触发，Ctrl+F 会在弹窗背后开查找条
+  const isModalBlocking = () => !!useAppStore.getState().promptDialog
 
   // Ctrl+S 保存；Ctrl+F 打开查找；F11/Esc 全屏切换
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (isModalBlocking()) return
     // 全屏状态下按 Esc 退出全屏
     if (isFullscreenRef.current && e.key === 'Escape') {
       e.preventDefault()
@@ -113,15 +124,24 @@ const EditorArea = () => {
               </div>
             }
           >
-            <MilkdownEditor
-              docKey={activeTab.id}
-              content={activeTab.content}
-              reloadTick={externalReload}
-              onChange={(md) => updateContent(activeTab.id, md)}
-            />
+            {sourceMode ? (
+              <SourceEditor
+                docKey={activeTab.id}
+                content={activeTab.content}
+                reloadTick={externalReload}
+                onChange={(md) => updateContent(activeTab.id, md)}
+              />
+            ) : (
+              <MilkdownEditor
+                docKey={activeTab.id}
+                content={activeTab.content}
+                reloadTick={externalReload}
+                onChange={(md) => updateContent(activeTab.id, md)}
+              />
+            )}
           </Suspense>
         </div>
-        {isMd && <FindReplace />}
+        {isMd && !sourceMode && <FindReplace />}
       </div>
       {!isFullscreen && <StatusBar />}
     </div>

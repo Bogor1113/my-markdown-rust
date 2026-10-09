@@ -33,10 +33,23 @@ fn current_md_prog_id() -> Result<Option<String>, String> {
         .open_subkey_with_flags("Software\\Classes", KEY_READ)
         .map_err(|e| format!("Failed to open HKCU\\Software\\Classes: {}", e))?;
 
-    Ok(classes
+    let classes_prog_id = classes
         .open_subkey_with_flags(".md", KEY_READ)
         .and_then(|k| k.get_value::<String, _>(""))
-        .ok())
+        .ok();
+
+    // UserChoice（资源管理器"打开方式"写入）对双击行为有更高优先级：
+    // 只读 Classes 默认值会把"用户已选择其他程序但 Classes 无默认值"误判为
+    // 无主，导致应用自认已关联而双击行为不变
+    let user_choice_prog_id = hkcu
+        .open_subkey_with_flags(
+            "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.md\\UserChoice",
+            KEY_READ,
+        )
+        .and_then(|k| k.get_value::<String, _>("ProgId"))
+        .ok();
+
+    Ok(user_choice_prog_id.or(classes_prog_id))
 }
 
 /// 检查 .md 文件是否已关联到本应用

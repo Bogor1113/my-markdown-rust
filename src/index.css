@@ -299,6 +299,27 @@ body {
   padding: 0 !important;
 }
 
+/* ── 源码模式（原始 Markdown 文本编辑）── */
+.mditor-source-editor {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 24px 32px;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--color-text);
+  caret-color: var(--color-accent, var(--color-text));
+  /* 字号与所见即所得模式共用同一设置（设置里字号滑杆写 --editor-font-size） */
+  font-size: var(--editor-font-size, 15px);
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  tab-size: 2;
+}
+
 /* 内部容器（Milkdown 创建）撑满高度：否则 .ProseMirror 的 min-height:100%
    相对 auto 高度的父级不生效，内容下方的空白区域不在 view.dom 内，
    点击空白处 posAtCoords 返回 null，光标无法定位、无法输入。
@@ -1199,6 +1220,9 @@ body.mditor-resizing {
   position: fixed;
   left: 50%;
   bottom: 32px;
+  /* Toast 无任何交互，但 z-index 2000 高于全部弹层：不穿透的话，
+     显示的 3 秒内底部约 80vw 区域（状态栏/面板底部按钮）点击全被吃掉 */
+  pointer-events: none;
   transform: translateX(-50%);
   z-index: 2000;
   max-width: 80vw;
@@ -1634,6 +1658,20 @@ body.mditor-resizing {
 .ProseMirror.resize-cursor {
   cursor: col-resize;
 }
+/* 表格单元格矩形选区（prosemirror-tables 的 CellSelection）。
+   拖选单元格时 prosemirror-tables 会给编辑器加 .ProseMirror-hideselection 隐藏原生选区，
+   只把选中范围表达为 .selectedCell 这个类；若不给它上色，屏幕上完全看不出选中的是哪一块，
+   实际表现就是"怎么拖都选不中"。 */
+.ProseMirror .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--color-accent, #4a9eff) 20%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent, #4a9eff) 55%, transparent);
+}
+
 /* 表格列边缘的拖拽手柄 */
 .column-resize-handle {
   position: absolute;

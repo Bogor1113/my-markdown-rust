@@ -10,8 +10,13 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use tauri::{AppHandle, Manager};
+
+/// 原子写临时文件序号：临时名带 pid + 序号，避免两个并发写同一路径时
+/// `File::create` 互相截断对方正在写的临时文件（自动保存与手动保存叠加等场景）
+static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// 已向 asset 协议作用域放行过的 (目录, recursive) 集合。
 ///
@@ -67,7 +72,11 @@ pub fn lock_ok<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 pub fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
     let tmp = match path.file_name() {
         Some(name) => {
-            let mut tmp_name = std::ffi::OsString::from(".mymdedit-tmp-");
+            let mut tmp_name = std::ffi::OsString::from(format!(
+                ".mymdedit-tmp-{}-{}-",
+                std::process::id(),
+                TMP_SEQ.fetch_add(1, Ordering::Relaxed),
+            ));
             tmp_name.push(name);
             path.with_file_name(tmp_name)
         }

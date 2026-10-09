@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../../stores/useAppStore'
-import { replaceFiles } from '../../services/fs'
+import { replaceFiles, readFile } from '../../services/fs'
 import type { SearchResult } from '../../types'
 
 function HighlightMatch({ text, start, end }: { text: string; start: number; end: number }) {
@@ -88,10 +88,50 @@ export default function SearchPanel() {
     setReplacing(true)
     setReplaceResult(null)
     try {
+      // 批量替换直接改写磁盘：必须先把已打开的脏标签保存落盘。
+      // 否则替换后用户一次 Ctrl+S 就会把不含替换结果的旧内存内容写回磁盘，
+      // 替换被静默回滚，且用户可能在旧内容上继续编辑造成内容分叉。
+      const store = useAppStore.getState()
+      for (const t of store.tabs.filter((x) => x.isDirty)) {
+        try {
+          await store.saveTab(t.id)
+        } catch (e) {
+          setReplaceResult(`替换已中止：「${t.name}」保存失败（${e}），请先处理该文件的未保存修改`)
+          return
+        }
+      }
+
       const results = await replaceFiles(rootPath, searchQuery.trim(), replaceQuery)
       const totalReplaced = results.reduce((sum, r) => sum + r.count, 0)
       if (totalReplaced > 0) {
-        setReplaceResult(`已在 ${results.length} 个文件中替换 ${totalReplaced} 处`)
+        // 已打开且被替换的标签从磁盘重载，保证编辑器内容与磁盘一致
+        const replacedPaths = new Set(results.map((r) => r.path))
+        const st = useAppStore.getState()
+        const openHits = st.tabs.filter((t) => replacedPaths.has(t.path))
+        const updates: { id: string; content: string }[] = []
+        for (const t of openHits) {
+          try {
+            updates.push({ id: t.id, content: await readFile(t.path) })
+          } catch {
+            /* 文件可能刚被外部删除：跳过 */
+          }
+        }
+        let touchActive = false
+        const activeId = st.activeTabId
+        if (updates.some((u) => u.id === activeId)) touchActive = true
+        if (updates.length > 0) {
+          useAppStore.setState((s2) => ({
+            tabs: s2.tabs.map((t) => {
+              const u = updates.find((x) => x.id === t.id)
+              return u ? { ...t, content: u.content, savedContent: u.content, isDirty: false } : t
+            }),
+            externalReload: touchActive ? s2.externalReload + 1 : s2.externalReload,
+          }))
+        }
+        setReplaceResult(
+          `已在 ${results.length} 个文件中替换 ${totalReplaced} 处` +
+            (updates.length > 0 ? `，已同步 ${updates.length} 个打开的标签` : ''),
+        )
         // 刷新搜索结果
         if (searchQuery.trim()) runSearch(searchQuery)
       } else {

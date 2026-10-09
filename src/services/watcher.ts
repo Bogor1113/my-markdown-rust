@@ -40,17 +40,30 @@ function flush() {
   void useAppStore.getState().handleFsEvent(batch)
 }
 
-/** 调度一次冲刷：合并 300ms 内的静默批次，同时保证两次冲刷间隔 ≥ THROTTLE_MS */
+/** 调度一次冲刷：合并 300ms 内的静默批次，同时保证两次冲刷间隔 ≥ THROTTLE_MS；
+ *  另有 MAX_WAIT 兜底——旧实现只要事件间隔持续 < DEBOUNCE_MS，定时器被无限后推，
+ *  一次都不冲刷（监视目录里有构建/日志类持续写入时，文件树与标签刷新完全停摆） */
+const MAX_WAIT_MS = 2000
+let firstPendingAt = 0
+
 function schedule() {
   if (debounceTimer) {
     clearTimeout(debounceTimer)
     debounceTimer = null
   }
-  if (pendingEvents.length === 0) return
-  const elapsed = Date.now() - lastFlush
-  const wait = elapsed >= THROTTLE_MS ? DEBOUNCE_MS : THROTTLE_MS - elapsed
+  if (pendingEvents.length === 0) {
+    firstPendingAt = 0
+    return
+  }
+  const now = Date.now()
+  if (!firstPendingAt) firstPendingAt = now
+  const elapsed = now - lastFlush
+  const throttleWait = elapsed >= THROTTLE_MS ? DEBOUNCE_MS : THROTTLE_MS - elapsed
+  const maxWait = firstPendingAt + MAX_WAIT_MS - now
+  const wait = Math.max(0, Math.min(throttleWait, maxWait))
   debounceTimer = setTimeout(() => {
     lastFlush = Date.now()
+    firstPendingAt = 0
     flush()
   }, wait)
 }
@@ -59,9 +72,15 @@ function schedule() {
 export async function setupFsWatcher(): Promise<UnlistenFn> {
   return listen<FsChangeEvent>('file-changed', (event) => {
     pendingEvents.push(event.payload)
-    // 事件风暴防护：积压超过上限时丢弃旧批次尾部，防止内存膨胀与持续高频处理
+    // 事件风暴防护：积压超过上限时丢弃旧批次尾部，防止内存膨胀与持续高频处理。
+    // rename-from/to 必须成对保留：孤儿 rename-to 无法配对，已打开标签的路径
+    // 不更新，后续保存会在旧路径重建文件（数据错位）。
     if (pendingEvents.length > MAX_KEEP) {
-      pendingEvents = pendingEvents.slice(-MAX_KEEP)
+      const isRename = (e: FsChangeEvent) => e.kind === 'rename-from' || e.kind === 'rename-to'
+      const renames = pendingEvents.filter(isRename)
+      const others = pendingEvents.filter((e) => !isRename(e))
+      const keepOthers = Math.max(0, MAX_KEEP - renames.length)
+      pendingEvents = [...renames, ...others.slice(-keepOthers)]
     }
     schedule()
   })

@@ -41,12 +41,16 @@ rem ---- Step 2: build ----
 echo.
 echo [2/3] Building release binary (standalone exe, no installer)...
 echo.
-set "PNPM=C:\Users\jy\AppData\Roaming\npm\pnpm.cmd"
-if exist "%PNPM%" (
-    call "%PNPM%" tauri build --no-bundle
-) else (
-    call npm run tauri build -- --no-bundle
+rem Frontend build is handled by beforeBuildCommand in tauri.conf.json
+rem (npm run build). pnpm is not installed on this machine, so use the
+rem repo-local tauri CLI instead of any global package manager.
+set "TAURI=%ROOT%node_modules\.bin\tauri.cmd"
+if not exist "%TAURI%" (
+    echo [ERROR] tauri CLI not found at %TAURI%
+    echo         Run npm install first.
+    goto :fail
 )
+call "%TAURI%" build --no-bundle
 if errorlevel 1 goto :fail
 
 rem ---- Step 3: rename exe to include version ----

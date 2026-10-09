@@ -74,7 +74,9 @@ const TabBar = () => {
   const menuItems = [
     {
       label: '关闭当前',
-      disabled: tabs.length <= 1,
+      // 与 × 按钮一致：允许关闭最后一个标签（closeTab 后进入空状态），
+      // 旧条件 tabs.length <= 1 让两个入口行为矛盾
+      disabled: false,
       action: () => void runClose(menu ? [menu.tabId] : []),
     },
     {
@@ -92,7 +94,7 @@ const TabBar = () => {
     },
     {
       label: '关闭非当前文件',
-      disabled: tabs.length <= 1,
+      disabled: menuIdx < 0,
       action: async () => {
         if (!menu) return
         hideMenu()
@@ -121,7 +123,12 @@ const TabBar = () => {
               onClick={() => setActiveTab(tab.id)}
               onContextMenu={(e) => {
                 e.preventDefault()
-                setMenu({ x: e.clientX, y: e.clientY, tabId: tab.id })
+                // clamp 到视口内：贴窗口右缘/底部右键时菜单不溢出（与 ContextMenu 一致）
+                const MENU_W = 168
+                const MENU_H = 4 * 34 + 8
+                const x = Math.max(4, Math.min(e.clientX, window.innerWidth - MENU_W - 4))
+                const y = Math.max(4, Math.min(e.clientY, window.innerHeight - MENU_H - 4))
+                setMenu({ x, y, tabId: tab.id })
               }}
               title={tab.path}
             >

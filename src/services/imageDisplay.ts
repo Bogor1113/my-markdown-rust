@@ -70,7 +70,10 @@ export function toLocalAbsPath(src: string): string | null {
   if (/^[A-Za-z]:[\\/]/.test(t) || t.startsWith('/') || t.startsWith('\\')) {
     return t.replace(/^\.\//, '')
   }
-  const asset = t.match(/^(?:asset|http):\/\/(?:localhost|tauri\.localhost)\/(.+)$/i)
+  // Windows 上 convertFileSrc 产物是 http://asset.localhost/...，其余平台为
+  // asset://localhost/...（旧版）—— 两种都要还原，漏了 asset.localhost 会让
+  // 「从显示地址反查本地路径」的全部链路（SVG 源码编辑、导出内联）失效。
+  const asset = t.match(/^(?:asset|http):\/\/(?:asset\.)?(?:localhost|tauri\.localhost)\/(.+)$/i)
   if (asset) {
     try {
       // Mermaid 等生成的 asset 协议在 Windows 上可能用全角冒号（%EF%BC%9A）代替盘符冒号

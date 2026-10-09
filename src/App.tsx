@@ -32,9 +32,13 @@ function App() {
     ;(window as any).__MIDITOR_STORE__ = useAppStore
   }, [])
 
-  // 启动时恢复上次会话：目录 + 已打开文件 + 活动标签
+  // 启动时恢复上次会话：目录 + 已打开文件 + 活动标签。
+  // 必须兜住 rejection：localStorage 数据损坏时 restoreSession 抛错会连带
+  // 打断后面「启动参数打开文件」的 await 链，双击 .md 打开文件的入口失效。
   useEffect(() => {
-    sessionRef.current = useAppStore.getState().restoreSession()
+    sessionRef.current = useAppStore.getState().restoreSession().catch((e) => {
+      console.error('[App] restoreSession failed:', e)
+    })
   }, [])
 
   // 文件系统监听：事件监听注册一次；根目录变化时启停 Rust 侧 watcher，
@@ -51,9 +55,23 @@ function App() {
       unlisten = fn
     })
     if (rootPath) {
-      void watchDirectory(rootPath).catch(() => {
-        useAppStore.getState().showToast('无法监听目录')
-      })
+      // 串行化启停：cleanup 与新 effect 各自发出的 stop/watch 是独立 IPC，
+      // Rust 侧执行顺序不受 invoke 发出顺序保证——若 stop 晚于 watch 执行，
+      // 新目录的监听会被旧目录的 stop 关掉，此后外部改动永远不刷新。
+      // 先 await stop 完成（幂等）再启动新目录的 watch，时序即得到保证。
+      void (async () => {
+        try {
+          await stopWatching()
+        } catch {
+          /* 尚无监听器时失败无害 */
+        }
+        if (cancelled) return
+        try {
+          await watchDirectory(rootPath)
+        } catch {
+          useAppStore.getState().showToast('无法监听目录')
+        }
+      })()
     }
     return () => {
       cancelled = true
@@ -139,15 +157,24 @@ function App() {
   // 全局搜索快捷键
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // 模态弹窗打开时屏蔽全局快捷键（与 EditorArea 同规则）：
+      // 否则弹窗内按键会穿透触发搜索，Esc 也会双重触发
+      if (useAppStore.getState().promptDialog) return
       const key = useShortcutsStore.getState().getKey('search')
       const parts = key.split('+')
       const needCtrl = parts.includes('Ctrl')
       const needShift = parts.includes('Shift')
+      const needAlt = parts.includes('Alt')
       const mainKey = parts[parts.length - 1]
-      if (((e.ctrlKey || e.metaKey) === needCtrl || !needCtrl) && e.shiftKey === needShift && e.key.toLowerCase() === mainKey.toLowerCase()) {
-        e.preventDefault()
-        useAppStore.getState().openSearch()
-      }
+      // 严格匹配每个修饰键：旧写法 `(hasCtrl === needCtrl || !needCtrl)` 在用户把
+      // 快捷键自定义为不含 Ctrl 的组合时放行任意 Ctrl/Alt 叠加，误触发搜索
+      const hasCtrl = e.ctrlKey || e.metaKey
+      if (needCtrl !== hasCtrl) return
+      if (needShift !== e.shiftKey) return
+      if (needAlt !== e.altKey) return
+      if (e.key.toLowerCase() !== mainKey.toLowerCase()) return
+      e.preventDefault()
+      useAppStore.getState().openSearch()
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
