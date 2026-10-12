@@ -5,6 +5,7 @@ import { useAppStore } from '../stores/useAppStore'
 import { writeRichClipboard } from '../utils/clipboard'
 import { fileSize } from '../services/fs'
 import { parentDirOf } from '../utils/files'
+import { slugifyHeading } from '../utils/markdown'
 
 /** 校验文档中链接/图片的本地相对路径是否真实存在，返回失效项 */
 export interface BrokenRef {
@@ -72,17 +73,12 @@ export function insertToc(editor: Editor | null): boolean {
       }
     })
     if (headings.length === 0) return
-    const slug = (text: string) =>
-      text
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}\s-]/gu, '')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '')
+    // slug 与 HTML 导出的标题锚点 id 共用同一实现（utils/markdown.slugifyHeading），
+    // 导出的文档里这些 #slug 链接才能真正跳到对应章节
     const md = headings
       .map((h) => {
         const indent = '  '.repeat(Math.max(0, h.level - 1))
-        const link = `[${h.text}](#${slug(h.text)})`
+        const link = `[${h.text}](#${slugifyHeading(h.text)})`
         return `${indent}- ${link}`
       })
       .join('\n') + '\n'
@@ -154,7 +150,10 @@ function formatMarkdown(md: string): string {
 /** 整理当前文档格式（Markdown 往返 + 规范化规则） */
 export function formatDocument(editor: Editor | null): boolean {
   if (!editor) return false
-  const md = useAppStore.getState().markdown
+  // 读活动标签的 content（store 真源）。旧实现读 store.markdown——那是编辑器
+  // 挂载期间才维护的副本：源码模式下停留在旧值/别的文件，会把**错误文档**格式化。
+  const { tabs, activeTabId } = useAppStore.getState()
+  const md = tabs.find((t) => t.id === activeTabId)?.content ?? ''
   if (!md) return false
   const formatted = formatMarkdown(md)
   if (formatted === md) return false

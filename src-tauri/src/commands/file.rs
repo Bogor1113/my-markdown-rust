@@ -2,6 +2,12 @@
 //!
 //! 写盘统一走 `atomic_write`（临时文件 + fsync + rename），
 //! 避免「截断后、写完前」的窗口内崩溃导致用户文档被清零。见 `commands/mod.rs`。
+//!
+//! **所有磁盘 IO 都放进 `spawn_blocking`**：Tauri v2 中非 async 的 command
+//! 跑在主线程，而这里每个命令都可能做几十 MB 的读写 —— `atomic_write` 里的
+//! `sync_all()` 更是强制落盘，在机械盘/网络盘/OneDrive 同步目录上可达数百 ms～数秒。
+//! 主线程被占住期间窗口会整体卡死（拖动、无响应），所以一律异步化。
+//! 资产协议授权（`allow_asset_directory`）需要 AppHandle，保持在阻塞调用之前完成。
 
 use base64::Engine as _;
 use std::path::Path;
@@ -14,7 +20,7 @@ const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STA
 
 /// 读取文件内容
 #[tauri::command]
-pub fn read_file(app: AppHandle, path: String) -> Result<String, String> {
+pub async fn read_file(app: AppHandle, path: String) -> Result<String, String> {
     // 打开文档 → 授权其所在目录（递归），使文档引用的本地图片可显示：
     // 含 `<文档名>.assets/`、`images/` 等相对路径以及绝对路径图片。
     // 跳过盘符根目录：直接授权整个磁盘违背收窄本意（如 C:\a.md 不授权 C:\**）
@@ -24,26 +30,38 @@ pub fn read_file(app: AppHandle, path: String) -> Result<String, String> {
             allow_asset_directory(&app, &dir, true);
         }
     }
-    std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))
+    tauri::async_runtime::spawn_blocking(move || std::fs::read_to_string(&path))
+        .await
+        .map_err(|e| format!("Failed to read file: {e}"))?
+        .map_err(|e| format!("Failed to read file: {e}"))
 }
 
 /// 写入文件内容（原子写）
 #[tauri::command]
-pub fn write_file(path: String, content: String) -> Result<(), String> {
-    atomic_write(Path::new(&path), content.as_bytes())
-        .map_err(|e| format!("Failed to write file: {}", e))
+pub async fn write_file(path: String, content: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        atomic_write(Path::new(&path), content.as_bytes())
+            .map_err(|e| format!("Failed to write file: {e}"))
+    })
+    .await
+    .map_err(|e| format!("Failed to write file: {e}"))?
 }
 
 /// 写入二进制文件（图片等），自动创建父目录
 #[tauri::command]
-pub fn save_image(app: AppHandle, path: String, bytes: Vec<u8>) -> Result<(), String> {
-    write_image_bytes(&app, &path, &bytes)
+pub async fn save_image(app: AppHandle, path: String, bytes: Vec<u8>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || write_image_bytes(&app, &path, &bytes))
+        .await
+        .map_err(|e| format!("Failed to save image: {e}"))?
 }
 
 /// 读取二进制文件内容（图片等）
 #[tauri::command]
-pub fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
-    std::fs::read(&path).map_err(|e| format!("Failed to read file: {}", e))
+pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move || std::fs::read(&path))
+        .await
+        .map_err(|e| format!("Failed to read file: {e}"))?
+        .map_err(|e| format!("Failed to read file: {e}"))
 }
 
 /// 读取二进制文件内容，以 base64 字符串返回。
@@ -51,21 +69,31 @@ pub fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
 /// 图片走 `Vec<u8>` 时，Tauri 会把它 JSON 序列化成数字数组
 /// （5MB 图片 ≈ 500 万个整数 ≈ 20MB 字符串 + JS 侧 40MB+ 数组），
 /// 是导出/插图卡顿的主因。base64 只膨胀 33%，且 JS 侧一次 `atob` 即可还原。
+///
+/// base64 编码本身对大图也是毫秒级以上的 CPU 工作，一并放进 blocking 线程。
 #[tauri::command]
-pub fn read_file_b64(path: String) -> Result<String, String> {
-    let bytes =
-        std::fs::read(&path).map_err(|e| format!("Failed to read file: {}", e))?;
-    Ok(B64.encode(&bytes))
+pub async fn read_file_b64(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes =
+            std::fs::read(&path).map_err(|e| format!("Failed to read file: {e}"))?;
+        Ok(B64.encode(&bytes))
+    })
+    .await
+    .map_err(|e| format!("Failed to read file: {e}"))?
 }
 
 /// 写入二进制文件（base64 载荷），自动创建父目录。
 /// 与 `read_file_b64` 配对，用于替代 `Vec<u8>` 的 JSON 数组传输。
 #[tauri::command]
-pub fn save_image_b64(app: AppHandle, path: String, data: String) -> Result<(), String> {
-    let bytes = B64
-        .decode(data)
-        .map_err(|e| format!("Failed to decode base64 data: {}", e))?;
-    write_image_bytes(&app, &path, &bytes)
+pub async fn save_image_b64(app: AppHandle, path: String, data: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = B64
+            .decode(data)
+            .map_err(|e| format!("Failed to decode base64 data: {e}"))?;
+        write_image_bytes(&app, &path, &bytes)
+    })
+    .await
+    .map_err(|e| format!("Failed to save image: {e}"))?
 }
 
 /// 写图片字节到目标路径（自动建父目录 + 授权 asset 协议）

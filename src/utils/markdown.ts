@@ -10,6 +10,26 @@
  * 先用两次原生 indexOf 找围栏标记——没有代码块的文档（大多数笔记）直接返回原文，
  * 比 split+逐行正则快两个数量级；正则也全部提为模块级常量，避免每次编译。
  */
+/**
+ * 标题 → 锚点 id（GitHub 风格 slug）。
+ *
+ * 唯一真源：这里同时服务两处，两处必须用**同一个**实现，否则互相失效——
+ *  1. plugins/docActions 的「插入目录」：生成 `[标题](#slug)` 形式的 Markdown 链接；
+ *  2. services/export 的 HTML 导出：给每个标题元素写 `id="slug"`，让导出文档里
+ *     的目录链接、以及正文里原有的 `#slug` 内部链接都能真正跳转到章节。
+ *
+ * 规则：小写 → 去掉除「字母/数字/空白/连字符」外的所有标点（中文属于 \p{L}，原样保留）
+ * → 空白转连字符 → 合并/裁剪多余连字符。
+ */
+export function slugifyHeading(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
 const FENCE_RE = /^(`{3,}|~{3,})[ \t]*(.*)$/
 
 /**

@@ -36,6 +36,20 @@ src-tauri/gen/schemas/
 # ---------- 打包 / 调试产物 ----------
 build-output/
 debug-run/
+# 打包脚本产出的可执行文件：每次 build 会生成带版本号的新文件（7MB+），
+# 属于本地产物而非源码，不应进版本库
+output/
+
+# ---------- 临时自测 / 验证文件 ----------
+# 目录导航与主题统一的自测脚手架（Vite 配置 + Tauri IPC 替身 + 无头浏览器断言页）
+toc-selftest/
+toc-selftest-*.html
+vite.selftest.config.ts
+# mermaid 代码块语法自检页
+mermaid-check/
+mermaid-check.html
+# 交付给用户手动打开验证的样例文档
+mermaid-test.md
 
 # ---------- 日志 / 临时文件 ----------
 *.log

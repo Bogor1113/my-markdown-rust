@@ -306,10 +306,6 @@ interface AppState {
   toastSeq: number
   showToast: (message: string) => void
 
-  // ── 当前文档 Markdown 源码（供「复制为 Markdown」使用）──
-  markdown: string
-  setMarkdown: (md: string) => void
-
   // ── 文件树右键菜单 ──
   treeMenu: TreeMenuState | null
   showTreeMenu: (state: TreeMenuState) => void
@@ -455,10 +451,6 @@ export const useAppStore = create<AppState>()(
     const timer = setTimeout(() => set({ toast: null }), 3000)
     set({ toastTimer: timer })
   },
-
-  // ── 当前文档 Markdown 源码（供「复制为 Markdown」使用）──
-  markdown: '',
-  setMarkdown: (md) => set({ markdown: md }),
 
   // ── 文件树右键菜单 ──
   treeMenu: null,
