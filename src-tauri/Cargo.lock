@@ -2299,7 +2299,7 @@ dependencies = [
 
 [[package]]
 name = "mymdedit"
-version = "1.0.96"
+version = "1.0.97"
 dependencies = [
  "base64 0.22.1",
  "docx-rs",
