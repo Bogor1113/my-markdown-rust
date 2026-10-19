@@ -11,6 +11,24 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use crate::commands::lock_ok;
 
+/// 调用 WebView2 `ICoreWebView2_19::SetMemoryUsageTargetLevel`。
+/// Low → 提示浏览器引擎丢缓存 / 换页；Normal → 恢复正常缓存策略。
+#[cfg(target_os = "windows")]
+fn set_webview2_memory_level(w: &tauri::webview::PlatformWebview, level: i32) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL, ICoreWebView2_19,
+    };
+    use windows::core::Interface;
+    let controller = w.controller();
+    if let Ok(core) = unsafe { controller.CoreWebView2() } {
+        if let Ok(wv19) = core.cast::<ICoreWebView2_19>() {
+            let _ = unsafe {
+                wv19.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL(level))
+            };
+        }
+    }
+}
+
 /// 前端同步过来的未保存文件列表（用于窗口关闭确认）
 pub struct DirtyFiles(pub Mutex<Vec<String>>);
 
@@ -20,6 +38,9 @@ fn show_main_window(app: &tauri::AppHandle) {
         let _ = win.show();
         let _ = win.unminimize();
         let _ = win.set_focus();
+        // 窗口恢复可见 → 把 WebView2 内存等级调回 Normal，让引擎恢复正常缓存策略
+        #[cfg(target_os = "windows")]
+        let _ = win.with_webview(|w| set_webview2_memory_level(&w, 0));
     }
 }
 
@@ -305,6 +326,11 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+                // 窗口隐藏到托盘 → 让 WebView2 进入 Low 内存等级，触发引擎丢缓存/交换
+                #[cfg(target_os = "windows")]
+                if let Some(wv) = window.app_handle().get_webview_window("main") {
+                    let _ = wv.with_webview(|w| set_webview2_memory_level(&w, 1));
+                }
             }
             // 拖入文件：当用户将文件或文件夹拖入窗口时，
             // .md 文件路径通过 app-drag-drop 事件通知前端打开，
