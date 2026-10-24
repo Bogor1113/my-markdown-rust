@@ -1298,32 +1298,6 @@ body.mditor-resizing {
   word-break: break-all;
 }
 
-/* ── Front Matter（YAML 元数据块）── */
-.ProseMirror .frontmatter-block {
-  margin: 0 0 1.2em;
-  padding: 0.6em 1em;
-  border: 1px dashed var(--color-border);
-  border-radius: 6px;
-  background: var(--color-bg-sidebar);
-  font-family: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
-  font-size: 0.85em;
-  line-height: 1.6;
-  color: var(--color-text-secondary);
-  overflow-x: auto;
-}
-.ProseMirror .frontmatter-block pre {
-  margin: 0;
-  background: none;
-  border: none;
-  padding: 0;
-}
-.ProseMirror .frontmatter-block code {
-  background: none;
-  border: none;
-  padding: 0;
-  font-family: inherit;
-}
-
 /* ── HTML 块（原始 HTML 渲染）── */
 .ProseMirror .mditor-html-block {
   margin: 0.4em 0 1.2em;

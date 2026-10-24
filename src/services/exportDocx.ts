@@ -395,14 +395,6 @@ function mathBlockParagraph(node: Node): Paragraph {
   })
 }
 
-function frontmatterParagraph(node: Node): Paragraph {
-  const lines = ((node.attrs.value as string) || '').split('\n')
-  return new Paragraph({
-    children: lines.map((line, i) => new TextRun({ text: line, break: i > 0 ? 1 : 0, font: FONT_CODE, size: 17, color: '808080' })),
-    spacing: { after: 120 },
-  })
-}
-
 /** 解析图片 src → 二进制字节 + 扩展名（相对路径 / file:// / http(s) / data URI） */
 async function resolveImageBytes(src: string, docPath: string): Promise<{ bytes: Uint8Array; ext: string } | null> {
   // data URI：直接解码
@@ -821,9 +813,6 @@ async function pushBlock(node: Node, ctx: WalkCtx): Promise<void> {
       break
     case 'math_block':
       ctx.blocks.push(mathBlockParagraph(node))
-      break
-    case 'frontmatter':
-      ctx.blocks.push(frontmatterParagraph(node))
       break
     case 'htmlBlock':
     case 'html':

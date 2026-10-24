@@ -19,7 +19,6 @@ import { editorViewCtx } from '@milkdown/kit/core'
 import { useAppStore, THEMES, themeLabel } from '../../stores/useAppStore'
 import { useSettingsStore } from '../../stores/settings'
 import { insertToc, copyMarkdownSource, formatDocument, validateDocument } from '../../plugins/docActions'
-import FrontmatterEditor from '../FrontmatterEditor/FrontmatterEditor'
 import { insertCodeBlock } from '../../utils/editor'
 import { createFile } from '../../services/fs'
 import { getDailyNoteFileName, getDailyNoteContent } from '../../lib/templates'
@@ -69,9 +68,6 @@ const Toolbar = () => {
   const themeTriggerRef = useRef<HTMLDivElement>(null)
   const themeDropdownRef = useRef<HTMLDivElement>(null)
   const [themePos, setThemePos] = useState<{ x: number; y: number } | null>(null)
-
-  // Front Matter GUI 编辑器开关
-  const [frontmatterOpen, setFrontmatterOpen] = useState(false)
 
   // 启动时后端异步写入关联，先查一次，稍后再查一次确保状态准确
   useEffect(() => {
@@ -399,7 +395,6 @@ const Toolbar = () => {
             const changed = formatDocument(editor)
             showToast(changed ? '已整理文档格式' : '无需整理')
           })}
-          {fmtBtn('编辑 Front Matter', '📋', () => setFrontmatterOpen(true))}
           <span className="mditor-tb-sep" />
           {fmtBtn('校验链接/图片', '✓', async () => {
             const { editor } = useAppStore.getState()
@@ -489,7 +484,6 @@ const Toolbar = () => {
       </div>
 
       </div>
-      <FrontmatterEditor open={frontmatterOpen} onClose={() => setFrontmatterOpen(false)} />
     </>
   )
 }

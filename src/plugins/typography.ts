@@ -54,7 +54,7 @@ export function optimizeTypography(editor: Editor | null): boolean {
     const changes: { from: number; to: number; text: string; marks: readonly Mark[] }[] = []
     // 这些节点的文本是「源码」而非正文：排版改写会破坏 YAML 结构、LaTeX 公式
     // 与 HTML 属性（如 font-family:"微软雅黑",sans-serif 里的逗号被换全角）。
-    const SOURCE_NODES = new Set(['code_block', 'frontmatter', 'math_inline', 'math_block', 'htmlBlock', 'html'])
+    const SOURCE_NODES = new Set(['code_block', 'math_inline', 'math_block', 'htmlBlock', 'html'])
     doc.descendants((node, pos) => {
       if (SOURCE_NODES.has(node.type.name)) return false // 跳过整棵子树
       if (!node.isText) return true

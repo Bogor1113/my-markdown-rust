@@ -28,7 +28,6 @@ import { saveImageToAssets } from '../../services/images'
 import { contextMenuPlugin } from '../ContextMenu/contextMenuPlugin'
 import { languageBadgePlugin } from '../ContextMenu/languageBadgePlugin'
 import { math } from '../../plugins/math'
-import { frontmatter } from '../../plugins/frontmatter'
 import { overrideListCommands } from '../../plugins/list'
 import { highlight as markHighlightPlugin, markConfig } from '../../plugins/mark'
 import { copyButtonPlugin } from '../../plugins/copyButton'
@@ -375,7 +374,6 @@ const editorRef = useRef<Editor | null>(null)
       .use(contextMenuPlugin)
       .use(languageBadgePlugin)
       .use(math)
-      .use(frontmatter)
       .use(markHighlightPlugin)
       .use(copyButtonPlugin)
       .use(imagePlugin)

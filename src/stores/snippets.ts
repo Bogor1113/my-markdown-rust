@@ -80,11 +80,6 @@ const DEFAULT_SNIPPETS: Snippet[] = [
     content: '[TOC]\n',
   },
   {
-    id: 'builtin-frontmatter',
-    name: '文章头部',
-    content: '---\ntitle: 文档标题\ndate: 2026-01-01\ntags: [标签1, 标签2]\n---\n\n',
-  },
-  {
     id: 'builtin-steps',
     name: '步骤列表',
     content: '1. 第一步：准备工作\n2. 第二步：执行操作\n3. 第三步：验证结果\n',
