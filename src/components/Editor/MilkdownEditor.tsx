@@ -130,10 +130,17 @@ const editorRef = useRef<Editor | null>(null)
     // replaceAll 同步触发 updated → markdownUpdated；先置位 skipSync 阻止回写，
     // 避免把程序化加载的序列化结果当作"用户编辑"标脏或覆盖 store 内容。
     //
-    // 第二个参数必须为 true（flush）：false 分支走 state.tr.replace(...)，是一条
-    // 没有 doNotRecord 的普通事务，会被 prosemirror-history 记入撤销栈——切标签
-    // A→B 之后按 Ctrl+Z 会把 A 的内容留在 B 的标签里，此时 Ctrl+S 或 30s 自动
-    // 保存就把 A 的内容写进 B 的文件。true 分支重建 EditorState，撤销栈随之清空。
+    // 第二个参数必须为 true（flush）：false 分支走 view.dispatch(tr.replace(...))，
+    // 是一条没有 doNotRecord 的普通事务，会被 prosemirror-history 记入撤销栈——
+    // 切标签 A→B 之后按 Ctrl+Z 会把 A 的内容留在 B 的标签里，此时 Ctrl+S 或
+    // 30s 自动保存就把 A 的内容写进 B 的文件。true 分支用 EditorState.create
+    // 重建状态，撤销栈随之清空。
+    //
+    // 代价：flush=true 走 view.updateState(state) 而不是 dispatch(tr)，
+    // Plugin.state.apply 不会执行，Milkdown 的 updated / markdownUpdated 监听
+    // 收不到这条加载事务（EditorState.create 已把监听器的 prevDoc 重置为加载后
+    // 的 doc，之后也无法判定"doc 变了"）。所以大纲必须由下面的 setTimeout 手动
+    // 补收集，否则右侧大纲永远不会出现。
     skipSyncRef.current = true
     editor.action((ctx) => {
       const view = ctx.get(editorViewCtx)
@@ -149,6 +156,13 @@ const editorRef = useRef<Editor | null>(null)
         useAppStore.getState().showToast('文档渲染失败，请检查异常公式 / HTML 等内容后重试')
       }
       applyVirtualization(view, rootRef.current)
+      // 补收集大纲：flush=true 绕过 dispatch，updated 监听收不到加载事务。
+      // 延后一帧：updateState 的 DOM 写入要等下一个 paint 才反映到布局，
+      // 立即 nodeDOM() 拿到的标题位置可能还是旧的
+      setTimeout(() => {
+        if (view.isDestroyed) return
+        collectOutlineNow(view)
+      }, 0)
     })
     setTimeout(() => { skipSyncRef.current = false }, 0)
   }
@@ -160,6 +174,10 @@ const editorRef = useRef<Editor | null>(null)
   const hideContextMenu = useAppStore((s) => s.hideContextMenu)
   /** 标题 pos → 标题 DOM 元素（大纲重算时刷新），scroll-spy 计算用 */
   const headingDomsRef = useRef<Map<number, HTMLElement>>(new Map())
+  /** 上次收集大纲时的 doc 引用：纯光标移动（选区事务）不重扫。
+   *  放组件级而非 effect 局部变量：程序化加载路径（applyLoaded）也要读它，
+   *  否则加载后手动收集与防抖定时器之间会互相覆盖 */
+  const lastOutlineDocRef = useRef<Node | null>(null)
 
   /** 根据滚动位置找出当前应高亮的标题 pos（最后一个还没滚出容器顶部的标题） */
   const syncActiveHeading = () => {
@@ -183,6 +201,28 @@ const editorRef = useRef<Editor | null>(null)
     setActiveOutlinePos(active)
   }
 
+  /**
+   * 收集一次大纲并同步激活标题。
+   *
+   * 正常输入路径由 updated 监听的防抖定时器调用；程序化加载路径必须显式调用
+   * ——见 applyLoaded 里对 flush=true 的说明。
+   */
+  const collectOutlineNow = (view: EditorView) => {
+    // 内容未变（纯光标移动/选区变化触发的事务）→ 跳过全量遍历
+    if (view.state.doc === lastOutlineDocRef.current) return
+    lastOutlineDocRef.current = view.state.doc
+    // 每次重算都刷新标题 DOM 映射：文档内容变化后旧引用失效
+    const doms = new Map<number, HTMLElement>()
+    const next = collectOutline(view, doms)
+    headingDomsRef.current = doms
+    const prev = useAppStore.getState().outline
+    const changed =
+      next.length !== prev.length ||
+      next.some((a, i) => a.pos !== prev[i].pos || a.level !== prev[i].level || a.text !== prev[i].text)
+    if (changed) setOutline(next)
+    syncActiveHeading()
+  }
+
   // 仅挂载时创建一次编辑器
   useEffect(() => {
     const root = rootRef.current
@@ -191,8 +231,6 @@ const editorRef = useRef<Editor | null>(null)
     let cancelled = false
     /** 大纲收集防抖：连续输入时只在停顿后重算，避免每次按键全量遍历文档 */
     let outlineTimer: ReturnType<typeof setTimeout> | null = null
-    /** 上次收集大纲时的 doc 引用：纯光标移动（选区事务）不重扫 */
-    let lastOutlineDoc: Node | null = null
 
     const editor = Editor.make()
       .config((ctx: Ctx) => {
@@ -229,19 +267,8 @@ const editorRef = useRef<Editor | null>(null)
             if (!v) return
             applyVirtualization(v, rootRef.current)
             // 内容未变（纯光标移动/选区变化触发的事务）→ 跳过全量遍历
-            if (v.state.doc === lastOutlineDoc) return
-            lastOutlineDoc = v.state.doc
-            // 每次重算都刷新标题 DOM 映射：文档内容变化后旧引用失效
-            const doms = new Map<number, HTMLElement>()
-            const next = collectOutline(v, doms)
-            headingDomsRef.current = doms
-            const prev = useAppStore.getState().outline
-            const changed =
-              next.length !== prev.length ||
-              next.some((a, i) => a.pos !== prev[i].pos || a.level !== prev[i].level || a.text !== prev[i].text)
-            if (changed) setOutline(next)
-            // 内容/结构变化后滚动位置对应的激活项可能改变，立即重算（如跳转后回写）
-            syncActiveHeading()
+            if (v.state.doc === lastOutlineDocRef.current) return
+            collectOutlineNow(v)
           }, 150)
         })
         // Markdown 变化 → 通知父组件（跳过程序化加载的回显，避免打开即“未保存”）
@@ -310,7 +337,7 @@ const editorRef = useRef<Editor | null>(null)
         registerEditor(e)
         // 打开文档时收起可能残留的右键菜单
         hideContextMenu()
-        // 编辑器就绪后加载当前文档内容（会触发 updated → 生成大纲）
+        // 编辑器就绪后加载当前文档内容（大纲由 applyLoaded 手动补收集）
         applyLoaded(e, contentRef.current)
       })
       .catch(console.error)
