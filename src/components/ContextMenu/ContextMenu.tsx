@@ -412,12 +412,15 @@ function htmlToPlain(html: string): string {
 function insertPlainText(view: EditorView, plain: string): boolean {
   const { $from, $to } = view.state.selection
   const schema = view.state.schema
-  const lines = plain.split('\n')
+  // 剪贴板文本常是 CRLF；不归一化会让每行尾部残留 \r，被 ProseMirror 当成正文
+  // 字符插进段落（渲染成不可见的乱字符），与 excelPaste / docActions 的处理保持一致。
+  const text = plain.replace(/\r\n?/g, '\n')
+  const lines = text.split('\n')
 
   let tr = view.state.tr
   if ($from.parent.type.spec.code) {
     // 代码块：换行属于合法内容，直接整体插入
-    tr.insertText(plain)
+    tr.insertText(text)
   } else if ($from.sameParent($to) && lines.length === 1) {
     // 单行：等同打字插入（继承光标处的书写 mark）
     tr.insertText(lines[0] ?? '')

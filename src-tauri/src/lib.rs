@@ -105,7 +105,20 @@ fn fit_window_to_work_area<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) 
     );
 }
 
-/// 托盘「退出程序」：有未保存文件时弹系统确认框，确认后才真正退出
+/// 前端确认「保存并退出」后调用：切到 UI 线程再退出，避免在 IPC 处理线程上
+/// 直接退出与主窗口事件循环竞争。
+#[tauri::command]
+fn quit_now(app: tauri::AppHandle) {
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let _ = a.exit(0);
+    });
+}
+
+/// 确认退出后给前端落盘的最长时间；超时仍未退出则强制退出（见 confirm_quit）
+const QUIT_FLUSH_GRACE_MS: u64 = 3000;
+
+/// 托盘「退出程序」：有未保存文件时弹确认框，确认后**先落盘再退出**
 fn confirm_quit(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         app.exit(0);
@@ -122,24 +135,40 @@ fn confirm_quit(app: &tauri::AppHandle) {
     let app_handle = app.clone();
     let names = dirty.iter().take(3).cloned().collect::<Vec<_>>().join("、");
     let count = dirty.len();
+    // 确认即「保存并退出」，所以文案要说清楚数据不会被丢掉
     let msg = if count > 3 {
-        format!("有 {count} 个文件未保存（{names} 等），确定退出？")
+        format!("有 {count} 个文件未保存（{names} 等），退出时将一并保存。确定退出？")
     } else {
-        format!("有 {count} 个文件未保存（{names}），确定退出？")
+        format!("有 {count} 个文件未保存（{names}），退出时将一并保存。确定退出？")
     };
     win.dialog()
         .message(msg)
         .title("未保存的修改")
         .kind(MessageDialogKind::Warning)
-        .buttons(MessageDialogButtons::OkCancelCustom("退出".into(), "取消".into()))
+        .buttons(MessageDialogButtons::OkCancelCustom("保存并退出".into(), "取消".into()))
         .show(move |confirmed| {
-            if confirmed {
-                let _ = app_handle.exit(0);
+            if !confirmed {
+                return
             }
+            // 自动保存是 30s 防抖 / 60s 强制落盘上限，「刚改完就点退出」的那段
+            // 窗口没有任何别的机制兜住。这里通知前端把脏标签全部落盘，落盘完
+            // 前端再回调 quit_now 立即退出。
+            //
+            // emit 是 fire-and-forget，所以另安排一个超时兜底退出：否则 JS 侧
+            // 异常（白屏、崩溃、监听未注册）会让用户点了「退出」却退不出去。
+            let _ = app_handle.emit("quit-confirmed", ());
+            let fallback = app_handle.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(QUIT_FLUSH_GRACE_MS));
+                let a = fallback.clone();
+                let _ = fallback.run_on_main_thread(move || {
+                    let _ = a.exit(0);
+                });
+            });
         });
 }
 
-/// 前端在标签页/内容变化时调用，同步当前未保存文件列表
+/// 前端在标签页/内容变化时调用，同步当前未保存文件列表（退出确认用）
 #[tauri::command]
 fn set_dirty_files(state: tauri::State<DirtyFiles>, files: Vec<String>) {
     *lock_ok(&state.0) = files;
@@ -220,6 +249,7 @@ pub fn run() {
             commands::watcher::watch_directory,
             commands::watcher::stop_watching,
             set_dirty_files,
+            quit_now,
             file_size,
             temp_dir,
             take_pending_open_files,

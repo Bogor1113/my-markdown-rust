@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
 import AppLayout from './components/Layout/AppLayout'
 import { syncDirtyFiles, takePendingOpenFiles, createFile } from './services/fs'
 import { setupFsWatcher, watchDirectory, stopWatching } from './services/watcher'
@@ -195,6 +196,25 @@ function App() {
       },
     )
     return unsub
+  }, [])
+
+  // 托盘「退出程序」确认后：先落盘全部未保存标签，再回调 Rust 立即退出。
+  // 自动保存有 30s 防抖 / 60s 上限，「刚改完就退出」的那段窗口只在这里兜住。
+  // Rust 侧另有 3s 超时兜底退出，所以这里失败也不会导致退不出去。
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null
+    void listen('quit-confirmed', () => {
+      void useAppStore.getState()
+        .flushAllDirty()
+        .finally(() => {
+          void invoke('quit_now').catch((e) => console.error('[quit_now]', e))
+        })
+    }).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
   }, [])
 
   // 托盘菜单「新建文件」：用户点击托盘 → Rust 呼出主界面并广播 tray-new-file，

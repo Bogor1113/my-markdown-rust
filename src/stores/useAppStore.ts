@@ -4,7 +4,7 @@ import type { Editor } from '@milkdown/kit/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import type { Tab, FileEntry, OutlineItem, ContextMenuState, LangPickerState, TreeMenuState, SearchResult, PromptDialogState, FsChangeEvent } from '../types'
 import { readFile, writeFile, listDirectory, searchFiles, fileSize } from '../services/fs'
-import { isMarkdown, parentDirOf } from '../utils/files'
+import { isMarkdown, parentDirOf, pathKey } from '../utils/files'
 import { useSettingsStore } from './settings'
 
 type Theme = 'dark' | 'light' | 'midnight' | 'dusk' | 'graphite' | 'paper'
@@ -180,6 +180,9 @@ const AUTOSAVE_DEBOUNCE_MS = 30_000
  * 到点无条件保存一次，保证「未落盘时间」有上界。
  */
 const AUTOSAVE_MAX_DELAY_MS = 60_000
+
+/** 退出前落盘的最长等待：写盘卡死（如网络盘无响应）时仍要保证能退得出去 */
+const FLUSH_TIMEOUT_MS = 5000
 
 let _autosaveTimer: ReturnType<typeof setTimeout> | null = null
 /** 本轮「变脏周期」的强制落盘截止时间（毫秒时间戳）；无待保存任务时为 0 */
@@ -372,6 +375,9 @@ interface AppState {
   saveCurrentFile: () => Promise<void>
   /** 保存指定标签的文件（供自动保存使用） */
   saveTab: (tabId: string) => Promise<void>
+
+  /** 退出前落盘全部未保存标签（托盘「退出程序」确认后调用） */
+  flushAllDirty: () => Promise<void>
   /** 文件被重命名后，同步已打开标签的路径与名称 */
   renameTabPath: (oldPath: string, newPath: string) => void
   /** 启动时恢复上次会话：目录 + 已打开文件 + 活动标签 */
@@ -613,13 +619,17 @@ export const useAppStore = create<AppState>()(
     // 5. 已打开标签：外部修改 → 重新加载；未保存的跳过并提示；被删除的提示
     const { tabs } = get()
     const sep = tabs[0]?.path.includes('\\') ? '\\' : '/'
+    // 大小写不敏感匹配：标签里的路径可能来自拖拽 / 单实例（Explorer 给的写法），
+    // 与 watcher 上报的文件系统真实大小写不同，按原串比会漏判外部变更
+    const allKeys = new Set<string>([...allPaths].map(pathKey))
     const reload: { id: string; content: string }[] = []
     for (const tab of tabs) {
-      let affected = allPaths.has(tab.path)
+      const tabKey = pathKey(tab.path)
+      let affected = allKeys.has(tabKey)
       if (!affected && sep) {
         // 目录被删除/重命名 → 其下所有已打开文件受影响
         for (const p of allPaths) {
-          if (tab.path.startsWith(p + sep)) {
+          if (tabKey.startsWith(pathKey(p + sep))) {
             affected = true
             break
           }
@@ -702,10 +712,15 @@ export const useAppStore = create<AppState>()(
       get().showToast('仅支持打开 Markdown 文档（.md / .markdown）')
       return
     }
-    const existing = s.tabs.find((t) => t.path === path)
+    // 按 pathKey 去重：Windows 路径大小写不敏感，拖拽 / 单实例 / 最近文件给的路径
+    // 与文件树里的路径可能大小写不同但指向同一文件；用原串比较会开出两个标签，
+    // 两者都可编辑，后写覆盖先写、静默丢数据。
+    const key = pathKey(path)
+    const existing = s.tabs.find((t) => pathKey(t.path) === key)
     if (existing) {
       set({ activeTabId: existing.id, docVersion: s.docVersion + 1 })
-      get().addRecentFile(path)
+      // 记录标签已有路径而非本次入参的写法，让最近文件列表保持单一拼写
+      get().addRecentFile(existing.path)
       persistSession()
       return
     }
@@ -759,7 +774,7 @@ export const useAppStore = create<AppState>()(
       // 并发去重：快速双击同一文件时，两次 openFile 都会越过开头的 existing 检查
       //（各自 await fileSize/readFile 期间 tabs 还是空的），插入前再查一次，
       // 否则会出现两个 id/path 完全相同的标签
-      const dup = s2.tabs.find((t) => t.path === path)
+      const dup = s2.tabs.find((t) => pathKey(t.path) === key)
       if (dup) return { activeTabId: dup.id, docVersion: s2.docVersion + 1 }
       return {
         tabs: [tab, ...s2.tabs],
@@ -806,12 +821,17 @@ export const useAppStore = create<AppState>()(
   renameTabPath: (oldPath: string, newPath: string) => {
     set((s) => {
       const sep = oldPath.includes('\\') ? '\\' : '/'
-      const remap = (p: string) =>
-        p === oldPath
-          ? newPath
-          : p.startsWith(oldPath + sep)
-            ? newPath + p.slice(oldPath.length)
-            : p
+      // 大小写不敏感匹配：标签的路径可能来自拖拽 / 单实例，与 watcher 上报的
+      // 文件系统真实大小写不同，按原串比会漏改——外部改名后标签仍持旧路径，
+      // 下次保存会在已不存在的路径上重建文件。替换时保留新路径的真实写法。
+      const oldKey = pathKey(oldPath)
+      const dirKey = pathKey(oldPath + sep)
+      const remap = (p: string) => {
+        const pk = pathKey(p)
+        if (pk === oldKey) return newPath
+        if (pk.startsWith(dirKey)) return newPath + p.slice(oldPath.length)
+        return p
+      }
       return {
         tabs: s.tabs.map((t) => {
           const path = remap(t.path)
@@ -914,9 +934,40 @@ export const useAppStore = create<AppState>()(
     }
   },
 
+  /**
+   * 退出前把全部未保存标签落盘。
+   *
+   * 自动保存是 30s 防抖、60s 强制落盘上限，「刚改完就点退出」的那段窗口没有任何
+   * 别的机制兜住——托盘「退出程序」确认后由前端调用本方法，把这段窗口的数据写下去。
+   *
+   * 各标签并发保存（互不依赖）；单个失败只提示、不阻塞其余标签，也不让退出被卡住
+   * （那样用户连「取消」都退不出去）。非 dirty 标签由 saveTab 内部直接返回。
+   */
+  flushAllDirty: async () => {
+    const { tabs, saveTab, showToast } = get()
+    const tasks = tabs.filter((t) => t.isDirty).map((t) =>
+      saveTab(t.id).catch((e) => {
+        showToast(`保存失败：${t.name}`)
+        console.error('[flushAllDirty] save failed:', t.path, e)
+      }),
+    )
+    if (tasks.length === 0) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, FLUSH_TIMEOUT_MS)
+    })
+    try {
+      await Promise.race([Promise.all(tasks), timeout])
+    } finally {
+      clearTimeout(timer)
+    }
+  },
+
   addRecentFile: (path) => {
     set((s) => {
-      const next = [path, ...s.recentFiles.filter((p) => p !== path)].slice(0, MAX_RECENT_FILES)
+      // 大小写不敏感去重：同一文件的两种写法在 Windows 上是同一个文件
+      const key = pathKey(path)
+      const next = [path, ...s.recentFiles.filter((p) => pathKey(p) !== key)].slice(0, MAX_RECENT_FILES)
       writeRecentFiles(next)
       return { recentFiles: next }
     })
@@ -986,10 +1037,16 @@ export const useAppStore = create<AppState>()(
         }
       }),
     )
+    // 去重：会话里可能存了同一文件的两种大小写写法（不同入口先后打开过），
+    // 不去重会恢复出两个指向同一物理文件的标签，风险与 openFile 相同
     const tabs: Tab[] = []
     let activeTabId: string | null = null
+    const seenKeys = new Set<string>()
     for (const r of results) {
       if (!r) continue
+      const k = pathKey(r.tab.path)
+      if (seenKeys.has(k)) continue
+      seenKeys.add(k)
       tabs.push(r.tab)
       if (r.isActive) activeTabId = r.tab.id
     }

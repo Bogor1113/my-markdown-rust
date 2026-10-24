@@ -129,12 +129,17 @@ const editorRef = useRef<Editor | null>(null)
     const clean = sanitizeCodeBlockTrailingNewlines(md)
     // replaceAll 同步触发 updated → markdownUpdated；先置位 skipSync 阻止回写，
     // 避免把程序化加载的序列化结果当作"用户编辑"标脏或覆盖 store 内容。
+    //
+    // 第二个参数必须为 true（flush）：false 分支走 state.tr.replace(...)，是一条
+    // 没有 doNotRecord 的普通事务，会被 prosemirror-history 记入撤销栈——切标签
+    // A→B 之后按 Ctrl+Z 会把 A 的内容留在 B 的标签里，此时 Ctrl+S 或 30s 自动
+    // 保存就把 A 的内容写进 B 的文件。true 分支重建 EditorState，撤销栈随之清空。
     skipSyncRef.current = true
     editor.action((ctx) => {
       const view = ctx.get(editorViewCtx)
       if (!view) return
       try {
-        replaceAll(clean)(ctx)
+        replaceAll(clean, true)(ctx)
         loadedDocRef.current = view.state.doc
       } catch (err) {
         // 渲染管线中任一节点 toDOM 抛错（如 KaTeX 遇非法 LaTeX、HTML 节点解析异常等）

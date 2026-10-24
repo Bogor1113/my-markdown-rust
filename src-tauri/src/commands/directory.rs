@@ -14,14 +14,27 @@ pub struct FileEntry {
     pub extension: Option<String>,
 }
 
-/// 列出目录内容，文件夹优先、按名称排序，跳过隐藏文件
+/// 列出目录内容，文件夹优先、按名称排序，跳过隐藏文件。
+///
+/// `read_dir` 是阻塞 IO，放在 `spawn_blocking` 里跑：这个命令被文件树展开、
+/// 会话恢复、以及**每次文件系统事件批处理**（watcher 推送后逐目录重扫）高频调用，
+/// 大目录下 read_dir 可达数十 ms，同步 command 跑在 Tauri 主线程会连带冻结整个
+/// 窗口（拖动、输入全部无响应）。
 #[tauri::command]
-pub fn list_directory(app: AppHandle, path: String) -> Result<Vec<FileEntry>, String> {
+pub async fn list_directory(app: AppHandle, path: String) -> Result<Vec<FileEntry>, String> {
+    // 授权需要 AppHandle，保持在阻塞调用之前完成
     // 打开/展开的文件夹视为工作区路径，授权给 asset 协议（递归，含 .assets 子目录）
     allow_asset_directory(&app, &path, true);
 
+    tauri::async_runtime::spawn_blocking(move || list_directory_sync(&path))
+        .await
+        .map_err(|e| format!("List directory task failed: {e}"))?
+}
+
+/// `list_directory` 的阻塞主体
+fn list_directory_sync(path: &str) -> Result<Vec<FileEntry>, String> {
     let entries =
-        std::fs::read_dir(&path).map_err(|e| format!("Failed to read directory: {}", e))?;
+        std::fs::read_dir(path).map_err(|e| format!("Failed to read directory: {}", e))?;
 
     let mut files: Vec<FileEntry> = Vec::new();
     for entry in entries {

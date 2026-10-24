@@ -136,10 +136,12 @@ pub async fn watch_directory(app: AppHandle, path: String) -> Result<(), String>
     .await
     .map_err(|e| format!("Failed to scan directory: {e}"))?;
 
-    // watcher 需放进共享句柄，才能在事件回调里「补注册新目录」；回调只持 Weak，避免自引用泄漏
-    let slot: std::sync::Arc<std::sync::Mutex<Option<WatcherHandle>>> =
-        std::sync::Arc::new(std::sync::Mutex::new(None));
-    let slot_weak = std::sync::Arc::downgrade(&slot);
+    // 回调时读取 Tauri 托管状态 `DirWatcher` 取当前句柄，才能「补注册新建目录」。
+    //
+    // 旧实现用一个函数内的局部 `slot` Arc + `slot_weak` Weak：`slot` 在函数返回时
+    // 就被析构了，`slot_weak.upgrade()` 永远返回 None —— 整段「新建目录补注册」
+    // 是死代码，新建的子目录永远不会被监听（其内部文件变化不刷新文件树/标签）。
+    // 改用 `state::<DirWatcher>()` 既拿到活句柄，也不会把 watcher 的引用泄漏到别处。
 
     let app_for_emit = app.clone();
     let root_for_filter = root.clone();
@@ -172,31 +174,31 @@ pub async fn watch_directory(app: AppHandle, path: String) -> Result<(), String>
             // 新建目录：手动 NonRecursive 注册不像 Recursive 那样自动扩展，
             // 这里按需补注册（含其直接子目录），否则目录内的后续变化收不到事件。
             if kind == "create" {
-                if let Some(slot) = slot_weak.upgrade() {
-                    let mut new_dirs: Vec<std::path::PathBuf> = Vec::new();
-                    for p in &event.paths {
-                        if is_noise_path(p, &root_for_filter) {
-                            continue;
-                        }
-                        let Ok(meta) = std::fs::symlink_metadata(p) else {
-                            continue;
-                        };
-                        if !meta.is_dir() {
-                            continue;
-                        }
-                        new_dirs.push(p.clone());
-                        // 只下钻一层：新目录通常为空，而它自己注册之后，
-                        // 其内部再新建子目录还会再触发一次 create 事件
-                        collect_watch_dirs(p, &root_for_filter, 1, &mut new_dirs);
+                let mut new_dirs: Vec<std::path::PathBuf> = Vec::new();
+                for p in &event.paths {
+                    if is_noise_path(p, &root_for_filter) {
+                        continue;
                     }
-                    if !new_dirs.is_empty() {
-                        if let Ok(guard) = slot.lock() {
-                            if let Some(handle) = guard.as_ref() {
-                                if let Ok(mut w) = handle.lock() {
-                                    for d in &new_dirs {
-                                        let _ = w.watch(d, RecursiveMode::NonRecursive);
-                                    }
-                                }
+                    let Ok(meta) = std::fs::symlink_metadata(p) else {
+                        continue;
+                    };
+                    if !meta.is_dir() {
+                        continue;
+                    }
+                    new_dirs.push(p.clone());
+                    // 只下钻一层：新目录通常为空，而它自己注册之后，
+                    // 其内部再新建子目录还会再触发一次 create 事件
+                    collect_watch_dirs(p, &root_for_filter, 1, &mut new_dirs);
+                }
+                if !new_dirs.is_empty() {
+                    // 锁顺序约定：这里 state.0 → handle，与 watch_directory 的
+                    // handle →（释放）→ state.0 不交叉，无死锁风险。
+                    let watcher_state = app_for_emit.state::<DirWatcher>();
+                    let guard = lock_ok(&watcher_state.0);
+                    if let Some(handle) = guard.as_ref() {
+                        if let Ok(mut w) = handle.lock() {
+                            for d in &new_dirs {
+                                let _ = w.watch(d, RecursiveMode::NonRecursive);
                             }
                         }
                     }
@@ -231,7 +233,6 @@ pub async fn watch_directory(app: AppHandle, path: String) -> Result<(), String>
         return Err("Failed to watch directory".to_string());
     }
     let state = app.state::<DirWatcher>();
-    *lock_ok(&slot) = Some(handle.clone());
     *lock_ok(&state.0) = Some(handle);
 
     // 用户选择的工作区根目录授权给 asset 协议（递归），供文档内本地图片显示

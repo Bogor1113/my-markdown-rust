@@ -111,61 +111,80 @@ fn write_image_bytes(app: &AppHandle, path: &str, bytes: &[u8]) -> Result<(), St
     atomic_write(target, bytes).map_err(|e| format!("Failed to write file: {}", e))
 }
 
-/// 创建文件（自动创建父目录），已存在则报错；可传入初始内容
+/// 创建文件（自动创建父目录），已存在则报错；可传入初始内容。
+///
+/// `create_dir_all` + `OpenOptions::open` + `write_all` 都是阻塞 IO，必须放进
+/// `spawn_blocking`：同步 command 跑在 Tauri 主线程，在网络盘 / OneDrive 同步
+/// 目录上会被拖住数百 ms 甚至更久，期间窗口完全无响应。
 #[tauri::command]
-pub fn create_file(app: AppHandle, path: String, content: Option<String>) -> Result<(), String> {
-    let target = Path::new(&path);
-    if let Some(parent) = target.parent() {
+pub async fn create_file(app: AppHandle, path: String, content: Option<String>) -> Result<(), String> {
+    // 授权需要 AppHandle，保持在阻塞调用之前完成
+    if let Some(parent) = Path::new(&path).parent() {
         let dir = parent.to_string_lossy().to_string();
-        if !dir.is_empty() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create directory: {}", e))?;
-            // 新建文档同样授权其所在目录：新建即写入的图片（粘贴/拖入）可立即显示
-            if parent.parent().is_some() {
-                allow_asset_directory(&app, &dir, true);
-            }
+        // 新建文档同样授权其所在目录：新建即写入的图片（粘贴/拖入）可立即显示
+        if !dir.is_empty() && parent.parent().is_some() {
+            allow_asset_directory(&app, &dir, true);
         }
     }
     let data = content.unwrap_or_default();
-    // 用 create_new 原子创建：先 exists() 检查再 rename 覆盖存在 TOCTOU 窗口，
-    // 窗口期内目标若被其他进程创建会被无条件覆盖（与 rename_path 同样的考量）。
-    // 新文件没有旧内容需要保护，直接写入即可，无需临时文件原子替换。
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(target)
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::AlreadyExists => format!("File already exists: {}", path),
-            _ => format!("Failed to create file: {}", e),
-        })?;
-    std::io::Write::write_all(&mut f, data.as_bytes())
-        .map_err(|e| format!("Failed to create file: {}", e))
+    tauri::async_runtime::spawn_blocking(move || {
+        let target = Path::new(&path);
+        if let Some(parent) = target.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("Failed to create directory: {}", e))?;
+            }
+        }
+        // 用 create_new 原子创建：先 exists() 检查再 rename 覆盖存在 TOCTOU 窗口，
+        // 窗口期内目标若被其他进程创建会被无条件覆盖（与 rename_path 同样的考量）。
+        // 新文件没有旧内容需要保护，直接写入即可，无需临时文件原子替换。
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(target)
+            .map_err(|e| match e.kind() {
+                std::io::ErrorKind::AlreadyExists => format!("File already exists: {}", path),
+                _ => format!("Failed to create file: {}", path),
+            })?;
+        std::io::Write::write_all(&mut f, data.as_bytes())
+            .map_err(|e| format!("Failed to create file: {}（{e}）", path))
+    })
+    .await
+    .map_err(|e| format!("Create file task failed: {e}"))?
 }
 
 /// 创建目录（含父目录）
 #[tauri::command]
-pub fn create_directory(path: String) -> Result<(), String> {
-    std::fs::create_dir_all(&path).map_err(|e| format!("Failed to create directory: {}", e))
+pub async fn create_directory(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::create_dir_all(&path).map_err(|e| format!("Failed to create directory: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Create directory task failed: {e}"))?
 }
 
 /// 重命名文件或目录，目标已存在则报错
 #[tauri::command]
-pub fn rename_path(old_path: String, new_path: String) -> Result<(), String> {
-    let old = Path::new(&old_path);
-    let new = Path::new(&new_path);
-    // 不预先做 exists() 检查：检查与操作之间存在 TOCTOU 窗口，
-    // 直接执行 rename 并把 OS 返回的错误翻译成可读信息，语义更准确。
-    match std::fs::rename(old, new) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            let msg = match e.kind() {
-                std::io::ErrorKind::NotFound => format!("Path not found: {}", old_path),
-                std::io::ErrorKind::AlreadyExists => format!("Target already exists: {}", new_path),
-                _ => format!("Failed to rename: {}", e),
-            };
-            Err(msg)
+pub async fn rename_path(old_path: String, new_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let old = Path::new(&old_path);
+        let new = Path::new(&new_path);
+        // 不预先做 exists() 检查：检查与操作之间存在 TOCTOU 窗口，
+        // 直接执行 rename 并把 OS 返回的错误翻译成可读信息，语义更准确。
+        match std::fs::rename(old, new) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let msg = match e.kind() {
+                    std::io::ErrorKind::NotFound => format!("Path not found: {}", old_path),
+                    std::io::ErrorKind::AlreadyExists => format!("Target already exists: {}", new_path),
+                    _ => format!("Failed to rename: {}", e),
+                };
+                Err(msg)
+            }
         }
-    }
+    })
+    .await
+    .map_err(|e| format!("Rename task failed: {e}"))?
 }
 
 /// 删除结果：`recycled` 表示是否成功移入回收站（false 表示退化成了永久删除）
@@ -180,16 +199,27 @@ pub struct DeleteResult {
 /// 优先移入系统回收站——侧边栏「删除」是常用入口，误删一个含几十篇笔记的文件夹
 /// 就是不可逆的灾难。回收站不可用时（如部分网络驱动器、文件被独占占用）
 /// 才退化为永久删除，并通过 `recycled: false` 让前端明确提示用户。
+///
+/// **必须异步**：`SHFileOperationW`（回收站）与 `remove_dir_all`（递归删除）
+/// 都是长时间阻塞调用，删除一个含大量文件的文件夹可达数秒到数十秒。
+/// 同步 command 跑在 Tauri 主线程 → 期间整个窗口完全无响应（拖动、点击都失效）。
 #[tauri::command]
-pub fn delete_path(path: String) -> Result<DeleteResult, String> {
-    let target = Path::new(&path);
+pub async fn delete_path(path: String) -> Result<DeleteResult, String> {
+    tauri::async_runtime::spawn_blocking(move || delete_path_sync(&path))
+        .await
+        .map_err(|e| format!("Delete task failed: {e}"))?
+}
+
+/// `delete_path` 的阻塞主体
+fn delete_path_sync(path: &str) -> Result<DeleteResult, String> {
+    let target = Path::new(path);
     if !target.exists() {
         return Err(format!("Path not found: {}", path));
     }
 
     #[cfg(target_os = "windows")]
     {
-        match recycle_delete_windows(&path) {
+        match recycle_delete_windows(path) {
             Ok(()) => return Ok(DeleteResult { recycled: true }),
             // 用户在系统对话框里取消（fAnyOperationsAborted）≠ 回收站不可用：
             // 绝不能把「用户主动取消」变成不可逆的永久删除，直接报错返回

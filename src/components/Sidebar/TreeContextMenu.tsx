@@ -8,7 +8,7 @@ import {
   deletePath,
   listDirectory,
 } from '../../services/fs'
-import { joinPath, parentDirOf, basenameOf } from '../../utils/files'
+import { joinPath, parentDirOf, basenameOf, pathKey } from '../../utils/files'
 import { builtinTemplates, getTemplateContent } from '../../lib/templates'
 
 interface MenuItem {
@@ -225,10 +225,17 @@ const TreeContextMenu = () => {
     if (!ok) return
     try {
       const { recycled } = await deletePath(path)
-      // 关闭与该路径相关的已打开标签
       const { tabs, closeTabs, setRootPath } = useAppStore.getState()
+      // 关闭与该路径相关的已打开标签。
+      // 大小写不敏感：标签的路径可能来自拖拽 / 单实例，与文件树里的写法不同，
+      // 按原串比会漏关——删掉的文件还留着一个标签，下次保存会在原路径重建。
+      const key = pathKey(path)
+      const dirKey = pathKey(path + sep)
       const ids = tabs
-        .filter((t) => t.path === path || t.path.startsWith(path + sep))
+        .filter((t) => {
+          const tk = pathKey(t.path)
+          return tk === key || tk.startsWith(dirKey)
+        })
         .map((t) => t.id)
       closeTabs(ids)
       if (path === rootPath) {

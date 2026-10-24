@@ -56,6 +56,21 @@ export function isMarkdown(path: string): boolean {
 }
 
 /**
+ * 同一文件的去重键。
+ *
+ * Windows 文件系统大小写不敏感，而路径字符串有三个来源：文件树（从 rootPath
+ * 派生）、拖拽（Explorer 给的写法）、单实例 / 最近文件（命令行与历史存储的写法）。
+ * 同一个物理文件只要大小写不同就是不同的字符串，若用 `path === path` 去重会开出
+ * 两个标签——各自可编辑，后写覆盖先写，静默丢数据。
+ *
+ * 只做小写化：不解析 `.` / `..` 段（那是路径规范化，需要文件系统查询，
+ * 放这里会引入不必要的异步与错误分支）。小写化已覆盖实际发生的差异。
+ */
+export function pathKey(path: string): string {
+  return path.toLowerCase()
+}
+
+/**
  * 可用「文本方式」直接打开的文件扩展名（白名单）。
  * 覆盖 Markdown、常见代码、配置、数据、脚本、标记语言等——只要能用文本
  * 打开查看/编辑的文件都纳入，避免把 .txt/.sh/.yaml/.toml 等拒之门外。
