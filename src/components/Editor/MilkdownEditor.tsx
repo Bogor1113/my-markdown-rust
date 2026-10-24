@@ -1,13 +1,21 @@
 import { useRef, useEffect } from 'react'
-import { Editor, rootCtx, editorViewCtx } from '@milkdown/kit/core'
+import {
+  Editor,
+  rootCtx,
+  editorViewCtx,
+  parserCtx,
+  schemaCtx,
+  editorStateOptionsCtx,
+  prosePluginsCtx,
+} from '@milkdown/kit/core'
 import type { Ctx } from '@milkdown/kit/ctx'
 import { commonmark, remarkHtmlTransformer } from '@milkdown/kit/preset/commonmark'
 import { gfm } from '@milkdown/kit/preset/gfm'
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { history } from '@milkdown/kit/plugin/history'
-import { TextSelection } from '@milkdown/kit/prose/state'
+import { TextSelection, EditorState } from '@milkdown/kit/prose/state'
 import type { EditorView } from '@milkdown/kit/prose/view'
-import { replaceAll, $prose } from '@milkdown/kit/utils'
+import { $prose } from '@milkdown/kit/utils'
 import { search } from 'prosemirror-search'
 import { highlight as highlightPlugin, highlightPluginConfig } from '@milkdown/plugin-highlight'
 import { upload, uploadConfig } from '@milkdown/plugin-upload'
@@ -124,30 +132,97 @@ const editorRef = useRef<Editor | null>(null)
   const loadedDocRef = useRef<Node | null>(null)
   const skipSyncRef = useRef(false)
 
-  /** 程序化加载文档内容，并记录加载后的 doc */
+  /** 每个标签的状态快照（按 docKey）：切走时保存 EditorState + 滚动位置，
+   *  切回来直接 updateState 还原，跳过 remark 解析与 EditorState.create。
+   *
+   *  实测（663KB / 2000 标题，共 ~5000 顶层块）：切标签总耗时 ~2s，其中
+   *  纯解析占 ~1.1s（约 55%）。缓存后切回命中只需 decorations + DOM diff，
+   *  解析归零；同时保留每个标签各自的撤销栈与选区，比原来 flush=true 每次
+   *  清空撤销栈的行为更合理。
+   *
+   *  内存预算：doc.nodeSize ≈ 文档字符数，单篇 600KB 文档的树就有几十 MB，
+   *  全部常驻会压垮低配机器，所以条数与总量双重约束、按 LRU 淘汰。
+   */
+  const SNAPSHOTS_MAX = 16
+  const SNAPSHOT_DOCSIZE_MAX = 1_500_000
+  const snapshotRef = useRef<Map<string, { state: EditorState; scrollTop: number; size: number }>>(new Map())
+  /** 外部磁盘重载时需绕过快照：快照里的 doc 已不是磁盘最新内容 */
+  const bypassCacheRef = useRef(false)
+
+  /** 存入/刷新一个快照；超出条数或总量预算时按 LRU 从最旧淘汰 */
+  const putSnapshot = (key: string, state: EditorState, scrollTop: number) => {
+    const m = snapshotRef.current
+    m.delete(key) // 先删再存，保证 LRU 顺序
+    m.set(key, { state, scrollTop, size: state.doc.nodeSize })
+    while (m.size > SNAPSHOTS_MAX) {
+      const oldest = m.keys().next().value
+      if (oldest === undefined) break
+      m.delete(oldest)
+    }
+    let total = 0
+    for (const entry of m.values()) total += entry.size
+    while (total > SNAPSHOT_DOCSIZE_MAX && m.size > 1) {
+      const oldest = m.keys().next().value
+      if (oldest === undefined) break
+      total -= m.get(oldest)!.size
+      m.delete(oldest)
+    }
+  }
+
+  /** 保存指定标签此刻的状态快照（内容没变则跳过） */
+  const snapshotDoc = (editor: Editor, key: string) => {
+    const view = editor.action((ctx) => ctx.get(editorViewCtx) ?? null)
+    if (!view || view.isDestroyed) return
+    const doc = view.state.doc
+    const prev = snapshotRef.current.get(key)
+    if (prev && prev.state.doc === doc) return
+    putSnapshot(key, view.state, rootRef.current?.scrollTop ?? 0)
+  }
+
+  /** 上一个 docKey：切标签时用旧 key 存快照（此刻闭包里的 docKey 已是新值） */
+  const prevDocKeyRef = useRef(docKey)
+
+  /** 程序化加载文档内容，并记录加载后的 doc。
+   *
+   *  flush 语义必须保留（updateState 而非 dispatch tr.replace）：否则程序化
+   *  加载会被 prosemirror-history 记入撤销栈，切标签 A→B 后 Ctrl+Z 会把 A 的
+   *  内容留在 B 里，进而被 Ctrl+S / 自动保存写进 B 的文件。
+   *
+   *  代价：updateState 不走 dispatch，Milkdown 的 updated / markdownUpdated
+   *  监听收不到这条加载事务，所以大纲必须由下面的 setTimeout 手动补收集。
+   */
   const applyLoaded = (editor: Editor, md: string) => {
-    const clean = sanitizeCodeBlockTrailingNewlines(md)
-    // replaceAll 同步触发 updated → markdownUpdated；先置位 skipSync 阻止回写，
-    // 避免把程序化加载的序列化结果当作"用户编辑"标脏或覆盖 store 内容。
-    //
-    // 第二个参数必须为 true（flush）：false 分支走 view.dispatch(tr.replace(...))，
-    // 是一条没有 doNotRecord 的普通事务，会被 prosemirror-history 记入撤销栈——
-    // 切标签 A→B 之后按 Ctrl+Z 会把 A 的内容留在 B 的标签里，此时 Ctrl+S 或
-    // 30s 自动保存就把 A 的内容写进 B 的文件。true 分支用 EditorState.create
-    // 重建状态，撤销栈随之清空。
-    //
-    // 代价：flush=true 走 view.updateState(state) 而不是 dispatch(tr)，
-    // Plugin.state.apply 不会执行，Milkdown 的 updated / markdownUpdated 监听
-    // 收不到这条加载事务（EditorState.create 已把监听器的 prevDoc 重置为加载后
-    // 的 doc，之后也无法判定"doc 变了"）。所以大纲必须由下面的 setTimeout 手动
-    // 补收集，否则右侧大纲永远不会出现。
     skipSyncRef.current = true
     editor.action((ctx) => {
       const view = ctx.get(editorViewCtx)
-      if (!view) return
+      if (!view || view.isDestroyed) return
       try {
-        replaceAll(clean, true)(ctx)
-        loadedDocRef.current = view.state.doc
+        const snap = bypassCacheRef.current ? undefined : snapshotRef.current.get(docKey)
+        if (snap) {
+          // 快照命中：直接换状态，解析成本归零。撤销栈 / 选区随快照一起还原。
+          view.updateState(snap.state)
+          loadedDocRef.current = snap.state.doc
+          // DOM 写入是同步的，但布局在下一帧；延后到帧末再还原滚动位置，
+          // 否则 scrollTop 可能因内容高度未就绪而失效
+          requestAnimationFrame(() => {
+            const root = rootRef.current
+            if (root && !view.isDestroyed) root.scrollTop = snap.scrollTop
+          })
+        } else {
+          const doc = ctx.get(parserCtx)(sanitizeCodeBlockTrailingNewlines(md))
+          if (!doc) return
+          const state = EditorState.create(
+            ctx.get(editorStateOptionsCtx)({
+              schema: ctx.get(schemaCtx),
+              doc,
+              plugins: ctx.get(prosePluginsCtx),
+            }),
+          )
+          view.updateState(state)
+          loadedDocRef.current = view.state.doc
+          // 缓存本次解析结果：下次切回这个标签不必再解析一遍
+          putSnapshot(docKey, state, rootRef.current?.scrollTop ?? 0)
+        }
       } catch (err) {
         // 渲染管线中任一节点 toDOM 抛错（如 KaTeX 遇非法 LaTeX、HTML 节点解析异常等）
         // 会冒泡到此处。若不兜底，编辑器会停在半加载状态、界面卡死。
@@ -156,8 +231,8 @@ const editorRef = useRef<Editor | null>(null)
         useAppStore.getState().showToast('文档渲染失败，请检查异常公式 / HTML 等内容后重试')
       }
       applyVirtualization(view, rootRef.current)
-      // 补收集大纲：flush=true 绕过 dispatch，updated 监听收不到加载事务。
-      // 延后一帧：updateState 的 DOM 写入要等下一个 paint 才反映到布局，
+      // 补收集大纲：updateState 绕过 dispatch，updated 监听收不到加载事务。
+      // 延后一帧：DOM 写入要等下一个 paint 才反映到布局，
       // 立即 nodeDOM() 拿到的标题位置可能还是旧的
       setTimeout(() => {
         if (view.isDestroyed) return
@@ -405,10 +480,14 @@ const editorRef = useRef<Editor | null>(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // docKey 变化（切换标签）时，replaceAll 加载对应文档，不重建编辑器
+  // docKey 变化（切换标签）时替换文档内容，不重建编辑器实例。
+  // 切走前先用「旧 key」存快照：此刻闭包里的 docKey 已是新值，
+  // 若直接用它会把上一个标签的 doc 存进新标签名下。
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
+    if (prevDocKeyRef.current !== docKey) snapshotDoc(editor, prevDocKeyRef.current)
+    prevDocKeyRef.current = docKey
     applyLoaded(editor, content)
   }, [docKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -430,11 +509,14 @@ const editorRef = useRef<Editor | null>(null)
     lastReloadTickRef.current = reloadTick
     const editor = editorRef.current
     if (!editor) return
+    // 磁盘内容已变：绕过快照缓存，否则还原的是旧状态、外部修改不生效
+    bypassCacheRef.current = true
     skipSyncRef.current = true
     applyLoaded(editor, contentRef.current)
     // 兜底复位：若加载内容与当前 doc 完全一致（未触发 markdownUpdated），
     // 避免吞掉后续用户编辑的同步
     setTimeout(() => {
+      bypassCacheRef.current = false
       skipSyncRef.current = false
     }, 0)
   }, [reloadTick]) // eslint-disable-line react-hooks/exhaustive-deps
