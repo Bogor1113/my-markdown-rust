@@ -1,6 +1,6 @@
 [package]
 name = "mymdedit"
-version = "1.0.99"
+version = "1.1.0"
 description = "波哥自研的 Markdown 桌面编辑器"
 authors = ["冬月十三"]
 edition = "2021"
