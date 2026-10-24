@@ -38,6 +38,7 @@ import { svgSourceEditorMilkdownPlugin } from '../../plugins/svgSourceEditor'
 import { autoPairPlugin } from '../../plugins/autoPair'
 import { calloutPlugin } from '../../plugins/callout'
 import { codeBlockLineNumbers } from '../../plugins/codeBlockLineNumbers'
+import { codeBlockCaretPlugin } from '../../plugins/codeBlockCaret'
 import { mermaidPlugin } from '../../plugins/mermaid'
 import { emojiAutocompletePlugin } from '../../plugins/emojiAutocomplete'
 import { excelPastePlugin } from '../../plugins/excelPaste'
@@ -383,6 +384,7 @@ const editorRef = useRef<Editor | null>(null)
       .use(autoPairPlugin)
       .use(calloutPlugin)
       .use(codeBlockLineNumbers)
+      .use(codeBlockCaretPlugin)
       // mermaid 代码块渲染成图表。插件本体只依赖 Milkdown 轻模块，
       // mermaid 库在 plugins/mermaid.ts 内部 await import('mermaid') 按需加载，
       // 注册它不影响启动速度（vite 也把它拆成独立 chunk）。
