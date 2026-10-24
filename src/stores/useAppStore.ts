@@ -370,6 +370,11 @@ interface AppState {
   closeTabs: (ids: string[]) => void
   setActiveTab: (id: string) => void
   updateContent: (id: string, content: string) => void
+  /** 用户编辑时立即把标签标脏（内容回写有 200ms 防抖，避免外部监听误判为未修改） */
+  markDirty: (id: string) => void
+  /** 编辑器注册的内容刷新器：保存前把最新编辑同步进 store（活动标签） */
+  contentFlusher: (() => void) | null
+  registerContentFlusher: (fn: (() => void) | null) => void
   /** 切换指定标签（默认活动标签）的源码模式；非 Markdown 标签无效 */
   toggleSourceMode: (id?: string) => void
   saveCurrentFile: () => Promise<void>
@@ -441,6 +446,8 @@ export const useAppStore = create<AppState>()(
   hideContextMenu: () => set({ contextMenu: null }),
   editor: null,
   registerEditor: (editor) => set({ editor }),
+  contentFlusher: null,
+  registerContentFlusher: (fn) => set({ contentFlusher: fn }),
 
   // ── 代码块语言选择器 ──
   langPicker: null,
@@ -866,6 +873,23 @@ export const useAppStore = create<AppState>()(
     scheduleAutosave()
   },
 
+  /**
+   * 编辑发生的第一时间标脏。
+   *
+   * 内容回写有 200ms 防抖（增量序列化），若只靠 updateContent 标脏，
+   * 用户连续输入时 isDirty 会长时间为 false；此时外部文件监听收到磁盘变更事件，
+   * 会以为标签没有本地修改而直接 reload，把正在输入的内容覆盖掉。
+   */
+  markDirty: (id) => {
+    const s = get()
+    const tab = s.tabs.find((t) => t.id === id)
+    if (!tab) return
+    if (!tab.isDirty) {
+      set({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, isDirty: true } : t)) })
+    }
+    scheduleAutosave()
+  },
+
   toggleSourceMode: (id) => {
     const s = get()
     const tabId = id ?? s.activeTabId
@@ -912,6 +936,9 @@ export const useAppStore = create<AppState>()(
   saveTab: async (tabId: string) => {
     const prev = _saveInflight.get(tabId) ?? Promise.resolve()
     const task = prev.catch(() => {}).then(async () => {
+      // 内容回写有 200ms 防抖：保存前先把编辑器里尚未同步的最新内容刷进 store，
+      // 否则「敲完立刻 Ctrl+S / 自动保存 / 退出」会写盘上一次防抖结果。
+      get().contentFlusher?.()
       const s = get()
       const tab = s.tabs.find((t) => t.id === tabId)
       if (!tab || !tab.isDirty) return

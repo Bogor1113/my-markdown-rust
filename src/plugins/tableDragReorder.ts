@@ -7,6 +7,7 @@ import { $prose } from '@milkdown/kit/utils'
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import type { Node } from '@milkdown/kit/prose/model'
+import { updateDecorations } from '../utils/incrementalDecorations'
 
 const key = new PluginKey('table-drag-reorder')
 
@@ -56,10 +57,15 @@ function moveCol(doc: Node, schema: Node['type']['schema'], tablePos: number, fr
   return { from: tablePos, to: tablePos + tableNode.nodeSize, content: newTableContent }
 }
 
-function createDecorations(doc: Node, _getDragState: () => DragState | null, setDragState: (s: DragState | null) => void): DecorationSet {
+function createDecorations(
+  doc: Node,
+  from: number,
+  to: number,
+  setDragState: (s: DragState | null) => void,
+): Decoration[] {
   const decorations: Decoration[] = []
 
-  doc.descendants((node, pos) => {
+  doc.nodesBetween(from, to, (node, pos) => {
     if (node.type.name !== 'table') return
 
     const rows = node.content.content
@@ -124,79 +130,34 @@ function createDecorations(doc: Node, _getDragState: () => DragState | null, set
     }
   })
 
-  return DecorationSet.create(doc, decorations)
-}
-
-/** 表格结构指纹：每张表的行数 + 各行单元格数。只含结构，不含文本内容——
- *  在表格里打字不会改变它，从而让下面的「位置平移」快路径生效。 */
-function tableFingerprint(doc: Node): string {
-  const parts: string[] = []
-  doc.descendants((node) => {
-    if (node.type.name === 'table') {
-      const rows = node.content.content
-      const cols = Array.from(rows, (r) => r.content.content.length).join('+')
-      parts.push(`${rows.length}:${cols}`)
-    }
-    return true
-  })
-  return parts.join('|')
+  return decorations
 }
 
 export const tableDragReorderPlugin = $prose(() => {
   let dragState: DragState | null = null
-  const getDragState = () => dragState
   const setDragState = (s: DragState | null) => { dragState = s }
 
-  // createDecorations 会遍历整篇文档、为每个表格的每一行/每一列新建 DOM 并绑定监听。
-  // 原先它在 state.apply 和 props.decorations 里各被调用一次，且**每个事务**（含纯光标移动）
-  // 都会跑，等于每次按方向键都把全文档的表格手柄重建两遍。
-  // 这里按 doc 引用缓存：文档内容没变就直接复用上一份 DecorationSet。
-  let lastDoc: Node | null = null
-  let lastSet: DecorationSet = DecorationSet.empty
-  let lastFp = ''
-
-  const build = (doc: Node): DecorationSet => {
-    if (doc === lastDoc) return lastSet
-    lastDoc = doc
-    lastFp = tableFingerprint(doc)
-    lastSet = createDecorations(doc, getDragState, setDragState)
-    return lastSet
-  }
+  // 增量 decoration：只重扫发生变化的顶层块（表格结构变化时自然落在变化区间内），
+  // 其余手柄按位置平移复用。旧实现每个字符都做一次全文档指纹遍历（大文档 ~3ms/键），
+  // 并且每次重建全部手柄 DOM。
+  const build = (doc: Node, from: number, to: number) =>
+    createDecorations(doc, from, to, setDragState)
 
   return new Plugin({
     key,
     state: {
-      init: (_config, state) => build(state.doc),
-      apply(tr, old, _oldState, newState) {
-        if (!tr.docChanged) return old
-        // 局部性守卫：映射只能可靠处理「小范围局部编辑」——打字/小粘贴时，
-        // 替换区间外的 decoration 位置由 mapping 正确平移。
-        // 整篇替换（打开文件 replaceAll）或大范围结构操作时，被替换区间
-        // 内部的坐标在映射中会塌缩到替换边界，手柄全部错位，必须全量重建。
-        const isLocal = tr.steps.every((s) => {
-          const step = s as unknown as { from?: number; to?: number }
-          return (
-            typeof step.from === 'number' &&
-            typeof step.to === 'number' &&
-            step.to - step.from <= 64
-          )
-        })
-        const fp = tableFingerprint(newState.doc)
-        if (isLocal && fp === lastFp) {
-          // 快路径：表格结构没变（典型：在表格/任意位置打字）→ 不重建手柄 DOM，
-          // 只把既有 decoration 的位置按事务映射平移到新文档。
-          // 旧实现每个字符都全量重建全部行/列手柄（新建 DOM + 重绑监听）。
-          lastDoc = newState.doc
-          lastFp = fp
-          lastSet = lastSet.map(tr.mapping, newState.doc)
-          return lastSet
-        }
-        return build(newState.doc)
-      },
+      init: (_config, state) => ({
+        doc: state.doc,
+        set: DecorationSet.create(state.doc, build(state.doc, 0, state.doc.content.size)),
+      }),
+      apply: (tr, value) =>
+        tr.docChanged
+          ? { doc: tr.doc, set: updateDecorations(value.doc, tr.doc, value.set, build) }
+          : value,
     },
     props: {
       decorations(state) {
-        return build(state.doc)
+        return key.getState(state)!.set
       },
       handleDOMEvents: {
         mousemove(_view, e) {

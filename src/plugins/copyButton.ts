@@ -4,8 +4,23 @@ import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import type { Node } from '@milkdown/kit/prose/model'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { codeBlockToStyledHtml, writeRichClipboard } from '../utils/clipboard'
+import { updateDecorations } from '../utils/incrementalDecorations'
 
 const key = new PluginKey('mditor-code-copy')
+
+/** 在文档里找某个节点当前的位置（点击时调用，非输入热路径）。 */
+function findNodePos(doc: Node, target: Node): number {
+  let found = -1
+  doc.descendants((node, pos) => {
+    if (found >= 0) return false
+    if (node === target) {
+      found = pos
+      return false
+    }
+    return true
+  })
+  return found
+}
 
 /**
  * 代码块一键复制按钮插件：
@@ -16,30 +31,15 @@ const key = new PluginKey('mditor-code-copy')
  * - mousedown 不冒泡不默认：不移动当前光标/选区，也不拿走焦点；
  * - 空代码块不渲染：widget 落在 pos + nodeSize - 1 = pos + 1，正好是空块唯一可放
  *   光标的位置，widget 会占住该位置导致光标进不去（与语言徽章同一约束）。
+ *
+ * 性能：旧实现每次文档变化都全量 descendants 重建整套 DecorationSet（60 万字符
+ * 文档约 42ms/键）。现在只重扫发生变化的顶层块，其余 widget 由 ProseMirror
+ * 按位置平移复用，单键成本降到 ~0.1ms（见 utils/incrementalDecorations.ts）。
  */
 export const copyButtonPlugin = $prose(() => {
-  const cache = new Map<number, HTMLElement>()
-  /** 每次装饰重建时刷新：代码块内容变化后按钮仍复制到最新文本 */
-  const textByPos = new Map<number, string>()
-  let curDoc: Node | null = null
-  let curView: EditorView | null = null
-  let lastDoc: Node | null = null
-  let lastSet: DecorationSet = DecorationSet.empty
+  let viewRef: EditorView | null = null
 
-  const pruneCache = (doc: Node) => {
-    const valid = new Set<number>()
-    doc.descendants((node, pos) => {
-      if (node.type.name === 'code_block') valid.add(pos)
-    })
-    for (const pos of [...cache.keys()]) {
-      if (!valid.has(pos)) {
-        cache.delete(pos)
-        textByPos.delete(pos)
-      }
-    }
-  }
-
-  const createButton = (pos: number): HTMLElement => {
+  const createButton = (block: Node): HTMLElement => {
     const btn = document.createElement('button')
     btn.className = 'code-copy-btn'
     btn.textContent = '复制'
@@ -55,11 +55,14 @@ export const copyButtonPlugin = $prose(() => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation()
       e.preventDefault()
-      const node = curDoc?.nodeAt(pos)
-      const text = node ? node.textContent : (textByPos.get(pos) ?? '')
+      const view = viewRef
+      if (!view || view.isDestroyed) return
+      // 节点对象未变（改别的块不会重建本按钮），位置在点击时现查
+      const pos = findNodePos(view.state.doc, block)
+      const text = block.textContent
       if (!text) return
       // 富文本复制：带语法高亮颜色的 HTML + 纯文本兜底（见 utils/clipboard.ts）
-      const html = curView ? (codeBlockToStyledHtml(curView, pos) ?? '') : ''
+      const html = pos >= 0 ? (codeBlockToStyledHtml(view, pos) ?? '') : ''
       const ok = await writeRichClipboard(html, text)
       if (ok) {
         btn.textContent = '已复制'
@@ -76,53 +79,37 @@ export const copyButtonPlugin = $prose(() => {
     return btn
   }
 
+  const build = (doc: Node, from: number, to: number): Decoration[] => {
+    const decos: Decoration[] = []
+    doc.nodesBetween(from, to, (node, pos) => {
+      if (node.type.name !== 'code_block') return
+      // 空块不渲染（见文件头注释：widget 会阻断光标进入唯一可插入位）
+      if (node.content.size === 0) return
+      decos.push(Decoration.widget(pos + node.nodeSize - 1, createButton(node), { side: 1 }))
+    })
+    return decos
+  }
+
   return new Plugin({
     key,
+    state: {
+      init: (_config, state) => ({
+        doc: state.doc,
+        set: DecorationSet.create(state.doc, build(state.doc, 0, state.doc.content.size)),
+      }),
+      apply: (tr, value) =>
+        tr.docChanged
+          ? { doc: tr.doc, set: updateDecorations(value.doc, tr.doc, value.set, build) }
+          : value,
+    },
     props: {
-      decorations: (state) => {
-        if (state.doc === lastDoc) return lastSet
-        curDoc = state.doc
-
-        const decos: Decoration[] = []
-        state.doc.descendants((node, pos) => {
-          if (node.type.name !== 'code_block') return
-
-          textByPos.set(pos, node.textContent)
-          // 空块不渲染（见文件头注释：widget 会阻断光标进入唯一可插入位）
-          if (node.content.size === 0) return
-
-          let widget = cache.get(pos)
-          if (!widget) {
-            widget = createButton(pos)
-            cache.set(pos, widget)
-          }
-          decos.push(Decoration.widget(pos + node.nodeSize - 1, widget, { side: 1 }))
-        })
-
-        lastDoc = state.doc
-        lastSet = decos.length === 0 ? DecorationSet.empty : DecorationSet.create(state.doc, decos)
-        return lastSet
-      },
+      decorations: (state) => key.getState(state)!.set,
     },
     view: (view) => {
-      curView = view
-      let lastPrunedDoc: Node | null = null
-      const pruneIfNeeded = (doc: Node) => {
-        if (doc === lastPrunedDoc) return
-        lastPrunedDoc = doc
-        pruneCache(doc)
-      }
-      pruneIfNeeded(view.state.doc)
+      viewRef = view
       return {
-        update: (updatedView) => {
-          curView = updatedView
-          pruneIfNeeded(updatedView.state.doc)
-        },
         destroy: () => {
-          curView = null
-          cache.clear()
-          textByPos.clear()
-          curDoc = null
+          viewRef = null
         },
       }
     },

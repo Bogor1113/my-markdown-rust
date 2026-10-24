@@ -3,6 +3,7 @@ import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
+import { updateDecorations } from '../utils/incrementalDecorations'
 
 let mermaidLib: any = null
 let mermaidIdCounter = 0
@@ -116,63 +117,58 @@ function renderInto(container: HTMLElement, code: string, id: string) {
 const key = new PluginKey('mermaid-render')
 
 export const mermaidPlugin = $prose(() => {
-  /** 上一次计算时的 doc 引用（内容未变则完全复用，光标移动零成本） */
-  let lastDoc: PMNode | null = null
-  let lastEpoch = renderEpoch
-  let lastSet: DecorationSet = DecorationSet.empty
-  /** 位置 → (源码, 纪元, 容器DOM)，每次重算时重建，天然完成了失效项的回收 */
-  let widgets = new Map<number, { code: string; epoch: number; el: HTMLElement }>()
-
-  const build = (state: { doc: PMNode }): DecorationSet => {
-    // 快路径：doc 引用未变且主题纪元未变（光标移动、选区变化）→ 直接复用上一份
-    if (state.doc === lastDoc && lastEpoch === renderEpoch) return lastSet
-
-    const next = new Map<number, { code: string; epoch: number; el: HTMLElement }>()
+  /** 只扫描 [from, to) 区间内的 mermaid 代码块并生成 widget decoration */
+  const build = (doc: PMNode, from: number, to: number): Decoration[] => {
     const decos: Decoration[] = []
-
-    state.doc.descendants((node, pos) => {
+    doc.nodesBetween(from, to, (node, pos) => {
       if (node.type.name !== 'code_block') return
-      if ((node.attrs.language as string) !== 'mermaid') return
+      if ((node.attrs.language as string) !== 'mermaid') return false
 
       const code = node.textContent
-      const prev = widgets.get(pos)
-      let el: HTMLElement
-
-      if (prev && prev.code === code && prev.epoch === renderEpoch) {
-        // 同一位置 + 同一源码 + 同一主题纪元 → 连 DOM 元素一起复用
-        el = prev.el
-      } else {
-        el = document.createElement('div')
-        el.className = 'mermaid-container mermaid-loading'
-        el.dataset.mermaidId = `mermaid-${++mermaidIdCounter}`
-        renderInto(el, code, el.dataset.mermaidId)
-      }
-      next.set(pos, { code, epoch: renderEpoch, el })
-      // 传 DOM 元素而非函数：位置未变时 ProseMirror 判定 widget 相等，不重建 DOM
+      const el = document.createElement('div')
+      el.className = 'mermaid-container mermaid-loading'
+      el.dataset.mermaidId = `mermaid-${++mermaidIdCounter}`
+      renderInto(el, code, el.dataset.mermaidId)
+      // 传 DOM 元素而非函数：未改动的块由 StepMap 平移复用，DOM 不会重建
       decos.push(Decoration.widget(pos, el, { side: 1 }))
+      return false
     })
-
-    widgets = next
-    lastDoc = state.doc
-    lastEpoch = renderEpoch
-    lastSet = decos.length === 0 ? DecorationSet.empty : DecorationSet.create(state.doc, decos)
-    return lastSet
+    return decos
   }
 
   return new Plugin({
     key,
+    state: {
+      init: (_config, state) => ({
+        doc: state.doc,
+        epoch: renderEpoch,
+        set: DecorationSet.create(state.doc, build(state.doc, 0, state.doc.content.size)),
+      }),
+      apply: (tr, value) => {
+        // 主题切换：所有图都要按新主题重画
+        if (value.epoch !== renderEpoch) {
+          return {
+            doc: tr.doc,
+            epoch: renderEpoch,
+            set: DecorationSet.create(tr.doc, build(tr.doc, 0, tr.doc.content.size)),
+          }
+        }
+        if (!tr.docChanged) return value
+        return {
+          doc: tr.doc,
+          epoch: value.epoch,
+          set: updateDecorations(value.doc, tr.doc, value.set, build),
+        }
+      },
+    },
     props: {
-      decorations: build,
+      decorations: (state) => key.getState(state)!.set,
     },
     view: (view) => {
       liveViews.add(view)
       return {
         destroy: () => {
           liveViews.delete(view)
-          widgets = new Map()
-          lastDoc = null
-          lastEpoch = renderEpoch
-          lastSet = DecorationSet.empty
           svgCache.clear()
         },
       }

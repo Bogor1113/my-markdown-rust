@@ -22,11 +22,9 @@ import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import type { EditorState } from '@milkdown/kit/prose/state'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
+import { updateDecorations } from '../utils/incrementalDecorations'
 
 const key = new PluginKey('code-block-line-numbers')
-
-let lastDoc: PMNode | null = null
-let lastSet: DecorationSet = DecorationSet.empty
 
 function createGutter(): HTMLDivElement {
   const gutter = document.createElement('div')
@@ -157,27 +155,38 @@ function alignGutterToPre(gutter: HTMLElement, preStyle: CSSStyleDeclaration, lh
 }
 
 function build(state: EditorState): DecorationSet {
-  if (state.doc === lastDoc) return lastSet
+  return DecorationSet.create(state.doc, buildRange(state.doc, 0, state.doc.content.size))
+}
 
+/** 只为 [from, to) 区间内的代码块建行号槽（区间按顶层块边界给出） */
+function buildRange(doc: PMNode, from: number, to: number): Decoration[] {
   const decos: Decoration[] = []
-  state.doc.descendants((node, pos) => {
+  doc.nodesBetween(from, to, (node, pos) => {
     if (node.type.name !== 'code_block') return
     // 空块不渲染：widget 会占住块内唯一可插入光标的位置
     if (node.content.size === 0) return
     // side: -2 → widget 渲染在代码块首字符之前（pre 内部、内容左侧）
     decos.push(Decoration.widget(pos + 1, createGutter, { side: -2 }))
   })
-
-  lastDoc = state.doc
-  lastSet = decos.length === 0 ? DecorationSet.empty : DecorationSet.create(state.doc, decos)
-  return lastSet
+  return decos
 }
 
 export const codeBlockLineNumbers = $prose(() =>
   new Plugin({
     key,
+    state: {
+      init: (_config, state) => ({
+        doc: state.doc,
+        set: build(state),
+      }),
+      // 只重扫发生变化的顶层块，其余行号槽按位置平移复用；避免每键全量 descendants
+      apply: (tr, value) =>
+        tr.docChanged
+          ? { doc: tr.doc, set: updateDecorations(value.doc, tr.doc, value.set, buildRange) }
+          : value,
+    },
     props: {
-      decorations: (state) => build(state),
+      decorations: (state) => key.getState(state)!.set,
     },
     view: (view) => {
       let raf = 0
@@ -246,8 +255,6 @@ export const codeBlockLineNumbers = $prose(() =>
           if (scrollRaf) cancelAnimationFrame(scrollRaf)
           scrollRoot.removeEventListener('scroll', onScroll)
           resizeObserver?.disconnect()
-          lastDoc = null
-          lastSet = DecorationSet.empty
         },
       }
     },

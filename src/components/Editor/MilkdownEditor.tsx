@@ -7,20 +7,20 @@ import {
   schemaCtx,
   editorStateOptionsCtx,
   prosePluginsCtx,
+  serializerCtx,
 } from '@milkdown/kit/core'
 import type { Ctx } from '@milkdown/kit/ctx'
-import { commonmark, remarkHtmlTransformer } from '@milkdown/kit/preset/commonmark'
+import { commonmark, remarkHtmlTransformer, syncListOrderPlugin } from '@milkdown/kit/preset/commonmark'
 import { gfm } from '@milkdown/kit/preset/gfm'
-import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { history } from '@milkdown/kit/plugin/history'
-import { TextSelection, EditorState } from '@milkdown/kit/prose/state'
+import { TextSelection, EditorState, Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { $prose } from '@milkdown/kit/utils'
 import { search } from 'prosemirror-search'
-import { highlight as highlightPlugin, highlightPluginConfig } from '@milkdown/plugin-highlight'
+import { codeHighlightPlugin } from '../../plugins/codeHighlight'
+import { listOrderPlugin } from '../../plugins/listOrder'
 import { upload, uploadConfig } from '@milkdown/plugin-upload'
 import type { Node, Schema } from '@milkdown/kit/prose/model'
-import { highlightParser } from '../../config/lowlight'
 import type { OutlineItem } from '../../types'
 import { useAppStore } from '../../stores/useAppStore'
 import { useSettingsStore } from '../../stores/settings'
@@ -49,6 +49,7 @@ import { tableDragReorderPlugin } from '../../plugins/tableDragReorder'
 import { taskTogglePlugin } from '../../plugins/taskToggle'
 import { typewriterPlugin } from '../../plugins/typewriter'
 import { sanitizeCodeBlockTrailingNewlines } from '../../utils/markdown'
+import { BlockMarkdownCache } from '../../utils/blockMarkdown'
 
 
 /**
@@ -120,17 +121,87 @@ const applyVirtualization = (view: EditorView, root: HTMLDivElement | null) => {
 }
 
 const MilkdownEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
-  // 保持最新引用，避免闭包过期
-  const onChangeRef = useRef(onChange)
-  onChangeRef.current = onChange
   const contentRef = useRef(content)
   contentRef.current = content
 
-const editorRef = useRef<Editor | null>(null)
+  const editorRef = useRef<Editor | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
-  /** 程序化加载后的 doc：用于识别"非用户编辑"的同步，避免打开文件就误标未保存 */
-  const loadedDocRef = useRef<Node | null>(null)
-  const skipSyncRef = useRef(false)
+  /** 程序化加载窗口：此期间的 doc 变化不算用户编辑（不标脏、不回写） */
+  const loadingRef = useRef(false)
+  /** 当前 docKey：供插件与延时任务读取最新值 */
+  const docKeyRef = useRef(docKey)
+  docKeyRef.current = docKey
+
+  /** 每个标签自己的回写回调：切标签后仍必须把旧文档写回旧标签，
+   *  不能复用 onChangeRef（它已指向新标签，会把旧内容写进新标签）。 */
+  const onChangeByKeyRef = useRef(new Map<string, (markdown: string) => void>())
+  onChangeByKeyRef.current.set(docKey, onChange)
+
+  /** 每个标签的「按顶层块」序列化缓存。切回标签时直接复用，
+   *  不再为同一篇文档重复预热。 */
+  const cachesRef = useRef(new Map<string, BlockMarkdownCache>())
+  const CACHES_MAX = 16
+  /** 加载后的空闲预热定时器 */
+  const seedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** 预热期间用户已编辑：缓存就绪后需要补一次回写 */
+  const pendingFlushRef = useRef(false)
+  /** 组件卸载标记（startSeed 可能在卸载后触发） */
+  const cancelledRef = useRef(false)
+
+  /** 取/建某个标签的增量序列化缓存 */
+  const getOrCreateCache = (ctx: Ctx, key: string): BlockMarkdownCache => {
+    const existing = cachesRef.current.get(key)
+    if (existing) return existing
+    const serialize = ctx.get(serializerCtx)
+    const schema = ctx.get(schemaCtx)
+    const cache = new BlockMarkdownCache((node) => serialize(schema.topNodeType.create(null, node)))
+    cachesRef.current.set(key, cache)
+    while (cachesRef.current.size > CACHES_MAX) {
+      const oldest = cachesRef.current.keys().next().value
+      if (oldest === undefined || oldest === key) break
+      cachesRef.current.delete(oldest)
+    }
+    return cache
+  }
+
+  /** 把当前 doc 增量序列化进缓存；budgetMs 内没做完返回 null（未就绪） */
+  const serializeCurrent = (ctx: Ctx, key: string, budgetMs = Infinity): string | null => {
+    const view = ctx.get(editorViewCtx)
+    if (!view || view.isDestroyed) return null
+    const cache = getOrCreateCache(ctx, key)
+    return cache.sync(view.state.doc, budgetMs) ? cache.markdown : null
+  }
+
+  /** 把某个标签的最新内容回写 store（只调用该标签自己的 onChange） */
+  const flushKey = (ctx: Ctx, key: string, budgetMs = Infinity): boolean => {
+    const md = serializeCurrent(ctx, key, budgetMs)
+    if (md == null) return false
+    onChangeByKeyRef.current.get(key)?.(sanitizeCodeBlockTrailingNewlines(md))
+    pendingFlushRef.current = false
+    return true
+  }
+
+  /** 加载后空闲预热：每 tick 最多 10ms，避免一次性冻结主线程。
+   *  大文档逐块序列化总量约 1.2s，分摊到空闲时间片后，用户真正开始输入时
+   *  缓存通常已就绪，第一次停顿不会再卡 1 秒。 */
+  const startSeed = (editor: Editor) => {
+    if (seedTimerRef.current) return
+    const tick = () => {
+      seedTimerRef.current = null
+      if (cancelledRef.current || editorRef.current !== editor) return
+      let ready = false
+      editor.action((ctx) => {
+        const key = docKeyRef.current
+        ready = serializeCurrent(ctx, key, 10) != null
+        if (ready && pendingFlushRef.current) {
+          pendingFlushRef.current = false
+          flushKey(ctx, key)
+        }
+      })
+      if (!ready) seedTimerRef.current = setTimeout(tick, 0)
+    }
+    seedTimerRef.current = setTimeout(tick, 0)
+  }
 
   /** 每个标签的状态快照（按 docKey）：切走时保存 EditorState + 滚动位置，
    *  切回来直接 updateState 还原，跳过 remark 解析与 EditorState.create。
@@ -192,7 +263,7 @@ const editorRef = useRef<Editor | null>(null)
    *  监听收不到这条加载事务，所以大纲必须由下面的 setTimeout 手动补收集。
    */
   const applyLoaded = (editor: Editor, md: string) => {
-    skipSyncRef.current = true
+    loadingRef.current = true
     editor.action((ctx) => {
       const view = ctx.get(editorViewCtx)
       if (!view || view.isDestroyed) return
@@ -201,7 +272,6 @@ const editorRef = useRef<Editor | null>(null)
         if (snap) {
           // 快照命中：直接换状态，解析成本归零。撤销栈 / 选区随快照一起还原。
           view.updateState(snap.state)
-          loadedDocRef.current = snap.state.doc
           // DOM 写入是同步的，但布局在下一帧；延后到帧末再还原滚动位置，
           // 否则 scrollTop 可能因内容高度未就绪而失效
           requestAnimationFrame(() => {
@@ -219,7 +289,6 @@ const editorRef = useRef<Editor | null>(null)
             }),
           )
           view.updateState(state)
-          loadedDocRef.current = view.state.doc
           // 缓存本次解析结果：下次切回这个标签不必再解析一遍
           putSnapshot(docKey, state, rootRef.current?.scrollTop ?? 0)
         }
@@ -227,7 +296,6 @@ const editorRef = useRef<Editor | null>(null)
         // 渲染管线中任一节点 toDOM 抛错（如 KaTeX 遇非法 LaTeX、HTML 节点解析异常等）
         // 会冒泡到此处。若不兜底，编辑器会停在半加载状态、界面卡死。
         console.error('[Milkdown] load render failed:', err)
-        loadedDocRef.current = null
         useAppStore.getState().showToast('文档渲染失败，请检查异常公式 / HTML 等内容后重试')
       }
       applyVirtualization(view, rootRef.current)
@@ -239,7 +307,10 @@ const editorRef = useRef<Editor | null>(null)
         collectOutlineNow(view)
       }, 0)
     })
-    setTimeout(() => { skipSyncRef.current = false }, 0)
+    // 加载结束（同步部分已完成）后解除“程序化加载”标记
+    setTimeout(() => { loadingRef.current = false }, 0)
+    // 空闲预热该标签的增量序列化缓存
+    startSeed(editor)
   }
 
   const setOutline = useAppStore((s) => s.setOutline)
@@ -304,13 +375,74 @@ const editorRef = useRef<Editor | null>(null)
     if (!root) return
 
     let cancelled = false
+    // StrictMode 会「挂载→卸载→再挂载」复用同一个组件实例：ref 会保留，
+    // 必须复位，否则第二次挂载后空闲预热会误以为已卸载而永不启动。
+    cancelledRef.current = false
     /** 大纲收集防抖：连续输入时只在停顿后重算，避免每次按键全量遍历文档 */
     let outlineTimer: ReturnType<typeof setTimeout> | null = null
+    /** 内容回写防抖：连续输入只在停顿 200ms 后回写一次 */
+    let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+    // 用户编辑 → 立即标脏（外部文件监听据此判断能否覆盖），并在停顿后回写内容。
+    //
+    // 不用 Milkdown 的 listener 插件，原因有二：
+    //   1. 它的 updated 回调传入的是「最后一次用户事务的 doc」；列表编号、表格对齐等
+    //      appendTransaction 会在这之后继续改 doc，导致 doc !== view.state.doc，
+    //      整次回写被防护判断跳过（实测大文件里内容会写不回 store）。
+    //   2. 它的 state.init 会对整篇文档完整序列化一次，大文件加载时白白多花约 1 秒。
+    // 这里改为「事务后防抖，回写时取 view.state.doc」，既拿到最终文档，又保留
+    // 切标签保护（定时器触发时 docKey 已变，说明旧标签已被 flush，本次作废）。
+    const dirtyTracker = $prose((ctx) =>
+      new Plugin({
+        key: new PluginKey('mditor-dirty-tracker'),
+        view: () => ({
+          update: (v, prev) => {
+            if (v.state.doc === prev.doc) return
+            if (loadingRef.current) return
+            useAppStore.getState().markDirty(docKeyRef.current)
+            const key = docKeyRef.current
+
+            if (flushTimer) clearTimeout(flushTimer)
+            flushTimer = setTimeout(() => {
+              flushTimer = null
+              if (cancelled) return
+              const view = ctx.get(editorViewCtx)
+              if (!view || view.isDestroyed) return
+              // 期间切了标签：旧文档已由切标签流程 flush，本次作废
+              if (docKeyRef.current !== key) return
+
+              // 内容回写（增量序列化，通常 <3ms）
+              const cache = getOrCreateCache(ctx, key)
+              if (cache.sync(view.state.doc, 8)) {
+                const md = cache.markdown
+                if (md != null) {
+                  onChangeByKeyRef.current.get(key)?.(sanitizeCodeBlockTrailingNewlines(md))
+                }
+              } else {
+                pendingFlushRef.current = true
+                const ed = editorRef.current
+                if (ed) startSeed(ed)
+              }
+
+              // 大纲：再等 150ms，仍无输入才全量遍历（大文档 nodeDOM 较贵）
+              if (outlineTimer) clearTimeout(outlineTimer)
+              outlineTimer = setTimeout(() => {
+                if (cancelled) return
+                const v2 = ctx.get(editorViewCtx)
+                if (!v2 || v2.isDestroyed) return
+                applyVirtualization(v2, rootRef.current)
+                if (v2.state.doc === lastOutlineDocRef.current) return
+                collectOutlineNow(v2)
+              }, 150)
+            }, 200)
+          },
+        }),
+      }),
+    )
 
     const editor = Editor.make()
       .config((ctx: Ctx) => {
         ctx.set(rootCtx, root)
-        ctx.set(highlightPluginConfig.key, { parser: highlightParser })
       })
       .config(markConfig)
       .config((ctx) => {
@@ -321,55 +453,23 @@ const editorRef = useRef<Editor | null>(null)
           enableHtmlFileUploader: true,
         })
       })
-      .config((ctx) => {
-        const l = ctx.get(listenerCtx)
-        // 内容更新 → 回写 store：实时同步大纲（防抖：停顿 150ms 后才重算）
-        l.updated((ctx2) => {
-          const view = ctx2.get(editorViewCtx)
-          if (!view) return
-          const doc = view.state.doc
-          // 程序化加载后的首次同步：内容与加载时完全一致（非用户编辑）→ 标记本次跳过回写。
-          // loadedDocRef 是一次性“加载窗口”标记，无论是否匹配都在首次 updated 后清空。
-          if (loadedDocRef.current) {
-            if (doc.eq(loadedDocRef.current)) skipSyncRef.current = true
-            loadedDocRef.current = null
-          }
-          // 防抖收集大纲：避免每次按键都全量遍历文档（大文档输入时是主要 CPU 热点）。
-          if (outlineTimer) clearTimeout(outlineTimer)
-          outlineTimer = setTimeout(() => {
-            if (cancelled) return
-            const v = ctx2.get(editorViewCtx)
-            if (!v) return
-            applyVirtualization(v, rootRef.current)
-            // 内容未变（纯光标移动/选区变化触发的事务）→ 跳过全量遍历
-            if (v.state.doc === lastOutlineDocRef.current) return
-            collectOutlineNow(v)
-          }, 150)
-        })
-        // Markdown 变化 → 通知父组件（跳过程序化加载的回显，避免打开即“未保存”）
-        l.markdownUpdated((_ctx, md) => {
-          if (skipSyncRef.current) {
-            skipSyncRef.current = false
-            return
-          }
-          const clean = sanitizeCodeBlockTrailingNewlines(md)
-          onChangeRef.current(clean)
-        })
-      })
       // 剔除 remarkHtmlTransformer：块级 HTML 由 htmlPlugin 的 htmlBlock 节点
       // 以真实 DOM 渲染（默认实现只把源码当纯文本展示，且会把块级 HTML 包进
       // paragraph 导致无法区分块级/行内）。$Remark 是 [optionsCtx, plugin] 元组，
       // commonmark 数组里存放的是它扁平化后的两个成员，需按成员引用过滤。
+      // 同时把自带的 syncListOrderPlugin 换成增量版：它每个事务都全量扫描文档，
+      // 大文档里约 14ms/键（见 plugins/listOrder.ts）。
       .use(
-        commonmark.filter(
-          (p) => !([remarkHtmlTransformer[0], remarkHtmlTransformer[1]] as unknown[]).includes(p),
-        ),
+        commonmark
+          .map((p) => (p === syncListOrderPlugin ? listOrderPlugin : p))
+          .filter(
+            (p) => !([remarkHtmlTransformer[0], remarkHtmlTransformer[1]] as unknown[]).includes(p),
+          ),
       )
       .use(overrideListCommands)  // override built-in: wrapInList instead of wrapIn
       .use(gfm)
       .use(history)
-      .use(listener)
-      .use(highlightPlugin)
+      .use(codeHighlightPlugin)
       .use(upload)
       .use(searchPlugin)
       .use(contextMenuPlugin)
@@ -397,10 +497,10 @@ const editorRef = useRef<Editor | null>(null)
       .use(tableDragReorderPlugin)
       .use(taskTogglePlugin)
       .use(typewriterPlugin)
+      .use(dirtyTracker)
 
-    // 编辑器创建过程中会触发空文档的 updated → markdownUpdated，
-    // 先置位 skipSync 防止空内容覆盖 store，applyLoaded 会重新置位并复位。
-    skipSyncRef.current = true
+    // 编辑器创建过程中会触发空文档的 updated；此时还没加载真实文档，
+    // applyLoaded 会置位 loadingRef 挡住这次误标脏。
     editor
       .create()
       .then((e) => {
@@ -419,7 +519,17 @@ const editorRef = useRef<Editor | null>(null)
 
     return () => {
       cancelled = true
+      cancelledRef.current = true
       if (outlineTimer) clearTimeout(outlineTimer)
+      if (flushTimer) clearTimeout(flushTimer)
+      if (seedTimerRef.current) {
+        clearTimeout(seedTimerRef.current)
+        seedTimerRef.current = null
+      }
+      // 卸载前把当前标签的最新内容同步回 store（切源码模式 / 关闭标签时防丢）。
+      // 增量序列化通常 <3ms；缓存未就绪时才可能多花一点时间，属于兜底。
+      const flushing = editorRef.current
+      if (flushing) flushing.action((ctx) => { flushKey(ctx, docKeyRef.current, Infinity) })
       setOutline([])
       setActiveOutlinePos(null)
       registerEditor(null)
@@ -481,15 +591,33 @@ const editorRef = useRef<Editor | null>(null)
   }, [])
 
   // docKey 变化（切换标签）时替换文档内容，不重建编辑器实例。
-  // 切走前先用「旧 key」存快照：此刻闭包里的 docKey 已是新值，
-  // 若直接用它会把上一个标签的 doc 存进新标签名下。
+  // 切走前先用「旧 key」把最新内容增量序列化回旧标签，再存快照：
+  // 此刻闭包里的 docKey 已是新值，若直接用它会把上一个标签的 doc 存进新标签名下。
   useEffect(() => {
     const editor = editorRef.current
     if (!editor) return
-    if (prevDocKeyRef.current !== docKey) snapshotDoc(editor, prevDocKeyRef.current)
+    const oldKey = prevDocKeyRef.current
+    if (oldKey !== docKey) {
+      // 增量序列化通常 <3ms；只有缓存尚未预热完才需要兜底全量（很少见）
+      editor.action((ctx) => { flushKey(ctx, oldKey) })
+      snapshotDoc(editor, oldKey)
+    }
     prevDocKeyRef.current = docKey
     applyLoaded(editor, content)
   }, [docKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 保存前强制把编辑器里尚未回写的最新内容同步到 store。
+  // 输入内容只在停顿 200ms 后回写；若用户敲完立刻 Ctrl+S / 自动保存 / 退出，
+  // saveTab 会先调用这个 flusher，保证落盘的是最新内容而不是上一次防抖结果。
+  const registerContentFlusher = useAppStore((s) => s.registerContentFlusher)
+  useEffect(() => {
+    registerContentFlusher(() => {
+      const editor = editorRef.current
+      if (!editor) return
+      editor.action((ctx) => { flushKey(ctx, docKeyRef.current, Infinity) })
+    })
+    return () => registerContentFlusher(null)
+  }, [registerContentFlusher])
 
   // 拼写检查：同步 spellcheck 属性到编辑器 contenteditable 元素
   const spellcheck = useSettingsStore((s) => s.spellcheck)
@@ -501,8 +629,6 @@ const editorRef = useRef<Editor | null>(null)
   }, [spellcheck])
 
   // 外部文件修改 → 从磁盘重新加载文档。
-  // 用 skipSync 标记跳过 markdownUpdated 回写：加载内容即为磁盘原文，
-  // 若回写会与编辑器序列化结果比较而可能误标未保存。
   const lastReloadTickRef = useRef(0)
   useEffect(() => {
     if (!reloadTick || reloadTick === lastReloadTickRef.current) return
@@ -511,13 +637,10 @@ const editorRef = useRef<Editor | null>(null)
     if (!editor) return
     // 磁盘内容已变：绕过快照缓存，否则还原的是旧状态、外部修改不生效
     bypassCacheRef.current = true
-    skipSyncRef.current = true
     applyLoaded(editor, contentRef.current)
-    // 兜底复位：若加载内容与当前 doc 完全一致（未触发 markdownUpdated），
-    // 避免吞掉后续用户编辑的同步
+    // 兜底复位：加载结束后恢复正常编辑判定
     setTimeout(() => {
       bypassCacheRef.current = false
-      skipSyncRef.current = false
     }, 0)
   }, [reloadTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
