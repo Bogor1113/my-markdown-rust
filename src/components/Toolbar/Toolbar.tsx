@@ -35,10 +35,16 @@ const Toolbar = () => {
   const setTheme = useAppStore((s) => s.setTheme)
   const saveCurrentFile = useAppStore((s) => s.saveCurrentFile)
   const showToast = useAppStore((s) => s.showToast)
-  const activeTabId = useAppStore((s) => s.activeTabId)
-  const tabs = useAppStore((s) => s.tabs)
-  const activeTab = tabs.find((t) => t.id === activeTabId)
-  const isMdTab = !!activeTab && isMarkdown(activeTab.path)
+  // 窄订阅：只取 path / isDirty 两个基元值。
+  // 若订阅整个 tabs 数组，每个字符输入都会替换数组引用 → Toolbar 每键重渲染。
+  // 这里改成基元值后，只有真正切换标签或 isDirty 翻转时才重渲染。
+  const activeTabPath = useAppStore(
+    (s) => s.tabs.find((t) => t.id === s.activeTabId)?.path ?? null,
+  )
+  const activeTabDirty = useAppStore(
+    (s) => s.tabs.find((t) => t.id === s.activeTabId)?.isDirty ?? false,
+  )
+  const isMdTab = !!activeTabPath && isMarkdown(activeTabPath)
 
   // 文件关联状态（启动时后端已自动设置，这里只做展示与手动重设）
   const [assocStatus, setAssocStatus] = useState<AssociationStatus | null>(null)
@@ -155,7 +161,7 @@ const Toolbar = () => {
   /** 按格式导出（PDF / Word / HTML），统一处理进行中状态与提示 */
   const doExport = (kind: 'pdf' | 'word' | 'html') => {
     const { editor } = useAppStore.getState()
-    const path = activeTab?.path
+    const path = activeTabPath
     if (!editor || !path) return
     const run = (
       fn: () => Promise<boolean>,
@@ -296,13 +302,13 @@ const Toolbar = () => {
     <div className="mditor-toolbar flex flex-1 items-center gap-1 px-2 py-1 select-none min-w-0 overflow-x-auto">
       <button
         className={`flex h-7 items-center justify-center rounded-md px-2 py-1 text-[14px] transition-colors ${
-          activeTab?.isDirty
+          activeTabDirty
             ? 'text-[var(--color-text)] hover:bg-white/10'
             : 'text-[var(--color-text-dim)]'
         }`}
         onClick={saveCurrentFile}
-        disabled={!activeTab?.isDirty}
-        title={activeTab?.isDirty ? '保存 (Ctrl+S)' : '无未保存更改'}
+        disabled={!activeTabDirty}
+        title={activeTabDirty ? '保存 (Ctrl+S)' : '无未保存更改'}
       >
         <span>💾</span>
       </button>
@@ -411,7 +417,7 @@ const Toolbar = () => {
         })}
       </div>
 
-      {activeTab && isMdTab && (
+      {activeTabPath && isMdTab && (
         <div className="flex items-center gap-1 mr-2">
           {/* 导出下拉：PDF / Word / HTML 合并为一个按钮 */}
           <div className="relative" ref={exportTriggerRef}>

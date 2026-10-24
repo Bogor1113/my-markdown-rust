@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, memo, useRef, useState } from 'react'
 import { ask } from '@tauri-apps/plugin-dialog'
 import { useAppStore } from '../../stores/useAppStore'
 import { FileIcon } from '../FileIcon'
@@ -9,11 +9,64 @@ interface TabMenu {
   tabId: string
 }
 
+/**
+ * 单个标签项。
+ *
+ * memo 是必须的：TabBar 订阅整个 tabs 数组，每个字符输入都会替换数组引用触发
+ * TabBar 重渲染。memo 让未变化的标签项直接跳过，只有正在编辑的那个标签
+ * （isDirty 翻转、content 变化）会真正重渲染。多开几十个标签时，每键的
+ * React 调和成本从 O(标签数) 降到 O(1)。
+ */
+const TabItem = memo(function TabItem({
+  tab,
+  isActive,
+  onActivate,
+  onContextMenu,
+  onClose,
+}: {
+  tab: { id: string; path: string; name: string; isDirty: boolean }
+  isActive: boolean
+  onActivate: (id: string) => void
+  onContextMenu: (id: string, e: React.MouseEvent) => void
+  onClose: (id: string) => void
+}) {
+  return (
+    <div
+      className={`mditor-tab group flex max-w-[140px] cursor-pointer items-center gap-1 rounded-t-md px-2 py-1.5 text-[12.5px] ${
+        isActive
+          ? 'mditor-tab-active font-medium'
+          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tab)] hover:text-[var(--color-text)]'
+      }`}
+      onClick={() => onActivate(tab.id)}
+      onContextMenu={(e) => onContextMenu(tab.id, e)}
+      title={tab.path}
+    >
+      <FileIcon path={tab.path} size={14} />
+      <span className="truncate">{tab.name}</span>
+      {tab.isDirty && (
+        <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[var(--color-dirty)]" />
+      )}
+      <button
+        className={`flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded text-[12px] leading-none transition-colors ${
+          isActive
+            ? 'text-[var(--color-text-dim)] hover:bg-[var(--color-border)] hover:text-[var(--color-text)]'
+            : 'text-[var(--color-text-dim)] opacity-0 hover:bg-[var(--color-border)] hover:text-[var(--color-text)] group-hover:opacity-100'
+        }`}
+        onClick={(e) => {
+          e.stopPropagation()
+          onClose(tab.id)
+        }}
+        title="关闭"
+      >
+        ×
+      </button>
+    </div>
+  )
+})
+
 const TabBar = () => {
   const tabs = useAppStore((s) => s.tabs)
   const activeTabId = useAppStore((s) => s.activeTabId)
-  const setActiveTab = useAppStore((s) => s.setActiveTab)
-  const closeTab = useAppStore((s) => s.closeTab)
   const closeTabs = useAppStore((s) => s.closeTabs)
 
   // 标签右键菜单
@@ -44,23 +97,38 @@ const TabBar = () => {
   }, [menu, hideMenu])
 
   /** 若 ids 中有未保存的标签，先弹确认；返回是否继续关闭 */
-  const confirmClose = useCallback(
-    async (ids: string[]): Promise<boolean> => {
-      const dirty = tabs.filter((t) => ids.includes(t.id) && t.isDirty)
-      if (dirty.length === 0) return true
-      const names =
-        dirty.slice(0, 3).map((t) => t.name).join('、') + (dirty.length > 3 ? ' 等' : '')
-      return ask(
-        `${dirty.length} 个文件有未保存的修改（${names}），确定关闭？`,
-        { title: '未保存的修改', kind: 'warning', okLabel: '关闭', cancelLabel: '取消' },
-      )
+  const confirmClose = useCallback(async (ids: string[]): Promise<boolean> => {
+    // 从 store 即时读取，而不是闭包捕获 tabs：捕获会让回调随每次输入变化，
+    // 使 TabItem 的 memo 失效
+    const { tabs } = useAppStore.getState()
+    const dirty = tabs.filter((t) => ids.includes(t.id) && t.isDirty)
+    if (dirty.length === 0) return true
+    const names =
+      dirty.slice(0, 3).map((t) => t.name).join('、') + (dirty.length > 3 ? ' 等' : '')
+    return ask(
+      `${dirty.length} 个文件有未保存的修改（${names}），确定关闭？`,
+      { title: '未保存的修改', kind: 'warning', okLabel: '关闭', cancelLabel: '取消' },
+    )
+  }, [])
+
+  const handleCloseTab = useCallback(
+    async (id: string) => {
+      if (await confirmClose([id])) useAppStore.getState().closeTab(id)
     },
-    [tabs],
+    [confirmClose],
   )
 
-  const handleCloseTab = async (id: string) => {
-    if (await confirmClose([id])) closeTab(id)
-  }
+  // clamp 到视口内：贴窗口右缘/底部右键时菜单不溢出（与 ContextMenu 一致）
+  const handleTabContextMenu = useCallback((tabId: string, e: React.MouseEvent) => {
+    e.preventDefault()
+    const MENU_W = 168
+    const MENU_H = 4 * 34 + 8
+    const x = Math.max(4, Math.min(e.clientX, window.innerWidth - MENU_W - 4))
+    const y = Math.max(4, Math.min(e.clientY, window.innerHeight - MENU_H - 4))
+    setMenu({ x, y, tabId })
+  }, [])
+
+  const handleActivate = useCallback((id: string) => useAppStore.getState().setActiveTab(id), [])
 
   if (tabs.length === 0) return null
 
@@ -101,7 +169,7 @@ const TabBar = () => {
         const ids = tabs.filter((t) => t.id !== menu.tabId).map((t) => t.id)
         if (!(await confirmClose(ids))) return
         // 先激活右键的目标标签，再关闭其余（符合 VS Code 行为）
-        setActiveTab(menu.tabId)
+        useAppStore.getState().setActiveTab(menu.tabId)
         closeTabs(ids)
       },
     },
@@ -110,50 +178,16 @@ const TabBar = () => {
   return (
     <>
       <div className="tabbar-scroll mditor-sidebar flex items-end gap-0.5 overflow-x-auto border-b border-[var(--color-border)] px-1 pt-1 select-none">
-        {tabs.map((tab) => {
-          const isActive = tab.id === activeTabId
-          return (
-            <div
-              key={tab.id}
-              className={`mditor-tab group flex max-w-[140px] cursor-pointer items-center gap-1 rounded-t-md px-2 py-1.5 text-[12.5px] ${
-                isActive
-                  ? 'mditor-tab-active font-medium'
-                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tab)] hover:text-[var(--color-text)]'
-              }`}
-              onClick={() => setActiveTab(tab.id)}
-              onContextMenu={(e) => {
-                e.preventDefault()
-                // clamp 到视口内：贴窗口右缘/底部右键时菜单不溢出（与 ContextMenu 一致）
-                const MENU_W = 168
-                const MENU_H = 4 * 34 + 8
-                const x = Math.max(4, Math.min(e.clientX, window.innerWidth - MENU_W - 4))
-                const y = Math.max(4, Math.min(e.clientY, window.innerHeight - MENU_H - 4))
-                setMenu({ x, y, tabId: tab.id })
-              }}
-              title={tab.path}
-            >
-              <FileIcon path={tab.path} size={14} />
-              <span className="truncate">{tab.name}</span>
-              {tab.isDirty && (
-                <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[var(--color-dirty)]" />
-              )}
-              <button
-                className={`flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded text-[12px] leading-none transition-colors ${
-                  isActive
-                    ? 'text-[var(--color-text-dim)] hover:bg-[var(--color-border)] hover:text-[var(--color-text)]'
-                    : 'text-[var(--color-text-dim)] opacity-0 hover:bg-[var(--color-border)] hover:text-[var(--color-text)] group-hover:opacity-100'
-                }`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  void handleCloseTab(tab.id)
-                }}
-                title="关闭"
-              >
-                ×
-              </button>
-            </div>
-          )
-        })}
+        {tabs.map((tab) => (
+          <TabItem
+            key={tab.id}
+            tab={tab}
+            isActive={tab.id === activeTabId}
+            onActivate={handleActivate}
+            onContextMenu={handleTabContextMenu}
+            onClose={handleCloseTab}
+          />
+        ))}
       </div>
 
       {/* 标签右键菜单 */}

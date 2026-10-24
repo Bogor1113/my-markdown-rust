@@ -70,15 +70,21 @@ export const typewriterPlugin = $prose(() => {
     view: (v) => {
       viewRef = v
 
-      // 订阅 store 的 focusMode 变化，切换 CSS 类 + 重新居中
-      unsub = useAppStore.subscribe((s, prev) => {
-        if (s.focusMode !== prev.focusMode) {
-          document.documentElement.classList.toggle('typewriter-mode', s.focusMode)
+      // 订阅 store 的 focusMode 变化，切换 CSS 类 + 重新居中。
+      //
+      // 必须用 selector 形式的 subscribe：裸 subscribe 会对**每次 store 变更**
+      // （含每个字符输入触发的 tabs 更新）都调用一次 listener，等于每键白跑一次
+      // 函数调用与参数比较。selector 形式只在 focusMode 真正变化时才回调。
+      unsub = useAppStore.subscribe(
+        (s) => s.focusMode,
+        (focusMode, prevFocusMode) => {
+          if (focusMode === prevFocusMode) return
+          document.documentElement.classList.toggle('typewriter-mode', focusMode)
           // 关闭时清掉残留的段落高亮（apply 现在在关闭态直接返回，不再负责清理）
-          if (!s.focusMode) clearActiveMarks()
+          if (!focusMode) clearActiveMarks()
           apply()
-        }
-      })
+        },
+      )
 
       // 若编辑器挂载时已开启专注模式，立即应用（例如从另一标签切换回来）
       if (useAppStore.getState().focusMode) {

@@ -499,10 +499,7 @@ html[data-heading-numbering='true'] .ProseMirror h6::before {
   border-radius: 6px;
 }
 /* 本地图片节点视图：随容器自适应、可拖拽、选中高亮、加载失败占位 */
-/* 图片独占段落时自动居中（inline-block 在 text-align:center 段落里居中） */
-.ProseMirror p:has(.mditor-image-wrap):not(:has(> :not(.mditor-image-wrap):not(.mditor-resize-handle))):not(:has(img)) {
-  text-align: center;
-}
+/* 图片所在段落自动居中（inline-block 在 text-align:center 段落里居中） */
 .ProseMirror p:has(> .mditor-image-wrap) {
   text-align: center;
 }
