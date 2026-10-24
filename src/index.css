@@ -1066,6 +1066,19 @@ body.mditor-resizing {
 .ProseMirror pre {
   padding-left: 3.5em;
 }
+/* ProseMirror 在「块末尾挂着 widget」（代码块的复制按钮/语言徽标）时会插入一个
+   <img class="ProseMirror-separator"> 占位。官方 prosemirror.css 里有兜底规则，
+   但本项目只引了 index.css；而 @import "tailwindcss" 的 preflight 会把 img 设成
+   display:block —— 一个块级盒子会强制换行，让代码块末尾凭空多出整整一行空白
+   （行高 25.5px）。那行没有文档内容：点不进去、选不中、也删不掉。
+   这里补回官方兜底，把它压成零尺寸的行内盒子。 */
+img.ProseMirror-separator {
+  display: inline !important;
+  border: none !important;
+  margin: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+}
 .ProseMirror pre .code-gutter {
   position: absolute;
   left: 0;

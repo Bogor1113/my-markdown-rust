@@ -35,37 +35,77 @@ function createGutter(): HTMLDivElement {
 }
 
 /**
+ * 收集 code 元素里「真正的正文」文本节点。
+ *
+ * <code> 内除了正文，还挂着 ProseMirror widget（行号槽 .code-gutter、复制按钮、
+ * 语言徽标）以及 PM 自己的占位节点（separator <img>、trailingBreak <br>）。
+ * widget 的 DOM 上带 contenteditable="false"，正文不会。
+ */
+function collectContentTextNodes(code: HTMLElement): Text[] {
+  const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = (node as Text).parentElement
+      if (!parent) return NodeFilter.FILTER_REJECT
+      // widget 不是正文：行号槽里全是数字文本，算进来会把行号自己当成代码行
+      if (parent.closest('.ProseMirror-widget, [contenteditable="false"]')) {
+        return NodeFilter.FILTER_REJECT
+      }
+      return NodeFilter.FILTER_ACCEPT
+    },
+  })
+  const out: Text[] = []
+  while (walker.nextNode()) out.push(walker.currentNode as Text)
+  return out
+}
+
+/**
  * 统计 code 元素的视觉行数。
  *
- * 主路径：用 Range 选中 code 全部内容后 getClientRects()，每个 line box 对应
- * 一个 rect、top 各异；按 top 去重即得视觉行数。此法直接枚举浏览器实际渲染出的
- * line box，对 pre-wrap 折行、hljs 行内 span、亚像素误差、字体度量差异全部鲁棒。
+ * 只测量「正文文本」的 line box：逐文本节点建 Range 取 getClientRects()，按 top
+ * 去重即得视觉行数。此法直接枚举浏览器实际渲染出的行框，对 pre-wrap 折行、
+ * hljs 行内 span、亚像素误差、字体度量差异全部鲁棒。
+ *
+ * 为什么必须排除 widget：行号槽 .code-gutter 就挂在 <code> 内部，里面是 N 个
+ * .line-num。旧实现用 range.selectNodeContents(code) 会把槽自身的盒和它的每个
+ * 行号 span 都算成一行，于是：
+ *   1) 每同步一次，行号槽的行号数量又被算进下一轮 → 19 → 37 → 55 … 无限增长；
+ *   2) 槽盒顶（在首行文字之上）被当成第 1 行 → 所有行号整体错位 1 行；
+ *   3) 复制按钮/徽标同样贡献 rect。
+ * 这些多出来的“行”没有任何文档内容，既选不中也删不掉，就是用户看到的幽灵行号。
  *
  * 兜底：若 getClientRects 返回空（如 layout 尚未稳定 / Range 不可用），用
  * max(文本行数, ceil(height/lh - ε)) 估算。文本行数是无折行时的下界、防止
  * 高度法在边界处少算；ceil + ε 容差防止亚像素累积误差把整行抹掉。
  */
-function countVisualLines(code: HTMLElement, lh: number): number {
+export function countVisualLines(code: HTMLElement, lh: number): number {
+  const nodes = collectContentTextNodes(code)
+  let text = ''
+  for (const node of nodes) text += node.data
+
   let visualRows = 0
   try {
-    const range = document.createRange()
-    range.selectNodeContents(code)
-    const rects = range.getClientRects()
     const tops = new Set<number>()
-    for (let i = 0; i < rects.length; i++) {
-      const r = rects[i]
-      if (r.height <= 0) continue
-      // 整像素容差：同一 line box 内的多个 rect（来自 hljs span 等）会落到同一整数 top
-      tops.add(Math.round(r.top))
+    for (const node of nodes) {
+      if (!node.data) continue
+      const range = document.createRange()
+      range.setStart(node, 0)
+      range.setEnd(node, node.data.length)
+      const rects = range.getClientRects()
+      for (let i = 0; i < rects.length; i++) {
+        const r = rects[i]
+        if (r.height <= 0) continue
+        // 整像素容差：同一 line box 内的多个 rect（来自 hljs span 等）会落到同一整数 top
+        tops.add(Math.round(r.top))
+      }
     }
     visualRows = tops.size
   } catch {
     /* fallthrough to 兜底 */
   }
 
-  const text = code.textContent ?? ''
-  // 文本行数：无折行时 = 视觉行数；有折行时为下界。trailing \n 不计入（空行无内容）
-  const textLines = text === '' ? 1 : text.replace(/\n+$/, '').split('\n').length
+  // 文本行数：无折行时 = 视觉行数；有折行时为下界。末尾空行也是真实内容行
+  // （光标可以停上去、也应该有行号），所以按 \n 原样切分，不裁掉尾部。
+  const textLines = text === '' ? 1 : text.split('\n').length
 
   if (visualRows > 0) return Math.max(visualRows, textLines)
 
@@ -88,6 +128,32 @@ function syncGutterRows(gutter: HTMLElement, code: HTMLElement, lh: number) {
     frag.appendChild(span)
   }
   gutter.appendChild(frag)
+}
+
+/**
+ * 让行号槽的几何与 pre 的内容盒完全重合。
+ *
+ * 为什么不能只靠 CSS：pre 的 font-size 是 15px、line-height 1.7 → 25.5px 一行；
+ * 而 <code> 里 font-size 是 0.9em（13.5px），继承的是**比例** 1.7，重算成 22.95px。
+ * 行号槽在 <code> 内部，`line-height: inherit` 拿到的是 22.95px —— 每行比正文少
+ * 2.55px，逐行累积漂移：12 行就错开一整行，40 行长代码块能错开 4 行。另外槽的
+ * 内边距是 1em(=13.5px)，与 pre 的 15px 也差 1.5px，首行就对不齐。
+ *
+ * 这里直接以 pre 的实测值为准（顶/底内边距 + 行高），并把槽的盒子收缩到 pre 的
+ * 内容盒（top/bottom 各让出 padding、自身上下 padding 归零），这样：
+ *   - 第 1 个行号与第 1 行文字严格同顶；
+ *   - 行号之间严格 1 行一个；
+ *   - 内容盒之外不会多画出任何“幽灵行号”。
+ */
+function alignGutterToPre(gutter: HTMLElement, preStyle: CSSStyleDeclaration, lh: number) {
+  const top = preStyle.paddingTop
+  const bottom = preStyle.paddingBottom
+  if (gutter.style.top !== top) gutter.style.top = top
+  if (gutter.style.bottom !== bottom) gutter.style.bottom = bottom
+  if (gutter.style.paddingTop !== '0px') gutter.style.paddingTop = '0px'
+  if (gutter.style.paddingBottom !== '0px') gutter.style.paddingBottom = '0px'
+  const lhPx = `${lh}px`
+  if (gutter.style.lineHeight !== lhPx) gutter.style.lineHeight = lhPx
 }
 
 function build(state: EditorState): DecorationSet {
@@ -142,6 +208,7 @@ export const codeBlockLineNumbers = $prose(() =>
           const style = getComputedStyle(pre)
           const lh = parseFloat(style.lineHeight)
           if (!lh || !isFinite(lh)) continue
+          alignGutterToPre(gutter, style, lh)
           syncGutterRows(gutter, code, lh)
         }
       }
