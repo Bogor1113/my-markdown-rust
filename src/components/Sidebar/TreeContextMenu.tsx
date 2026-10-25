@@ -191,7 +191,17 @@ const TreeContextMenu = () => {
       onConfirm: (v) => {
         const input = v.name.trim()
         if (!input || input.trim() === name) return
-        const target = joinPath(parentDirOf(path), input.trim())
+        // 未写扩展名时沿用原扩展名。
+        // 不补的话 note.md → 输入 note2 会重命名成没有后缀的 note2：文件树里立刻变灰
+        // （isOpenableFile(extension) 为 null）、双击打不开，标签页路径也一起烂掉。
+        // 与「新建文件」自动补 .md 的行为保持一致。
+        let finalName = input
+        if (!isDir) {
+          const hasExt = finalName.lastIndexOf('.') > 0
+          const origDot = name.lastIndexOf('.')
+          if (!hasExt && origDot > 0) finalName += name.slice(origDot)
+        }
+        const target = joinPath(parentDirOf(path), finalName)
         void (async () => {
           try {
             await renamePath(path, target)

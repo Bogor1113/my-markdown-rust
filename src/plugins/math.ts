@@ -10,7 +10,6 @@ import katex from 'katex'
 import remarkMath from 'remark-math'
 import { Fragment } from '@milkdown/kit/prose/model'
 import { InputRule } from '@milkdown/kit/prose/inputrules'
-import { nodeRule } from '@milkdown/kit/prose'
 import 'katex/dist/katex.min.css'
 
 /// 包装 [remark-math](https://www.npmjs.com/package/remark-math)，
@@ -78,11 +77,23 @@ export const mathInlineSchema = $nodeSchema('math_inline', (ctx: Ctx) => ({
 }))
 
 /// 输入规则：输入 `$内容$` 后自动转成内联数学节点。
+///
+/// 上游实现用的是 prosemirror 的 `nodeRule`，它内部走 `blockRange()` +
+/// `findWrapping()`，只能把**块级**节点包起来。而 math_inline 是 inline 节点，
+/// 于是这条规则在真实输入里一次都不会生效（`$x$` 始终停在纯文本）。
+/// 这里改成直接 replaceWith 一个内联节点。
+///
+/// 内容首尾不允许空格（Pandoc / Typora 同款判定），避免把「价格 $5 到 $10」
+/// 这种正文误判成公式。
 export const mathInlineInputRule = $inputRule((ctx: Ctx) =>
-  nodeRule(/(?:\$)([^$]+)(?:\$)$/, mathInlineSchema.type(ctx), {
-    beforeDispatch: ({ tr, match, start }) => {
-      tr.insertText(match[1] ?? '', start + 1)
-    },
+  new InputRule(/\$([^\s$\n][^$\n]*[^\s$\n]|[^\s$\n])\$$/, (state, match, start, end) => {
+    const raw = match[1] ?? ''
+    if (!raw.trim()) return null
+    return state.tr.replaceWith(
+      start,
+      end,
+      mathInlineSchema.type(ctx).create(null, state.schema.text(raw))
+    )
   })
 )
 

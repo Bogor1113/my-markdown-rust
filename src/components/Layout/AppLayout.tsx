@@ -86,6 +86,9 @@ const AppLayout = () => {
   )
   const isFullscreen = useAppStore((s) => s.isFullscreen)
   const toggleFullscreen = useAppStore((s) => s.toggleFullscreen)
+  // 侧栏开关（Ctrl+Shift+L）。宽度存在 sidebarWidth 里，隐藏只卸载节点、
+  // 不改宽度，切回来还是原来的宽度。
+  const sidebarVisible = useAppStore((s) => s.sidebarVisible)
 
   const handleSidebarResize = useCallback((delta: number) => {
     setSidebarWidth((w) => Math.max(160, Math.min(480, w + delta)))
@@ -122,8 +125,8 @@ const AppLayout = () => {
       )}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        {/* 左侧文件树（全屏时隐藏） */}
-        {!isFullscreen && (
+        {/* 左侧文件树（全屏或 Ctrl+Shift+L 隐藏时卸载） */}
+        {!isFullscreen && sidebarVisible && (
           <>
             <aside
               className="mditor-sidebar flex h-full flex-shrink-0 flex-col border-r border-[var(--color-border)]"

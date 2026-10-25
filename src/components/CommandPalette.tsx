@@ -37,7 +37,9 @@ function buildCommands(): CommandItem[] {
   }))
   return [
     ...themeCommands,
-    { id: 'focus', title: '切换专注模式', run: () => s.toggleFocusMode() },
+    { id: 'focus', title: '切换专注模式（淡化其它段落）', run: () => s.toggleFocusMode() },
+    { id: 'typewriter', title: '切换打字机模式（当前段落居中）', run: () => s.toggleTypewriterMode() },
+    { id: 'sidebar', title: '显示 / 隐藏侧栏', run: () => s.toggleSidebar() },
     {
       id: 'copymd',
       title: '复制 Markdown 源码',
@@ -88,6 +90,17 @@ export const CommandPalette = () => {
       setTimeout(() => inputRef.current?.focus(), 0)
     }
   }, [open, mode])
+
+  // Esc 关闭：输入框有焦点时由输入框自身处理（并 preventDefault），
+  // 焦点跑到列表项或窗口其他位置时也必须能关——否则面板只能靠点遮罩退出。
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) close()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, close])
 
   const files = useMemo(() => {
     if (mode !== 'files') return []

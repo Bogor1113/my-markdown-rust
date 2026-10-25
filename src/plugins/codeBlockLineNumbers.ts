@@ -22,7 +22,8 @@ import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import type { EditorState } from '@milkdown/kit/prose/state'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
-import { updateDecorations } from '../utils/incrementalDecorations'
+import { updateDecorationsEx, type DecorationUpdate } from '../utils/incrementalDecorations'
+import { viewportTopPos } from '../utils/viewportPos'
 
 const key = new PluginKey('code-block-line-numbers')
 
@@ -178,12 +179,17 @@ export const codeBlockLineNumbers = $prose(() =>
       init: (_config, state) => ({
         doc: state.doc,
         set: build(state),
+        ranges: [{ from: 0, to: state.doc.content.size }],
+        changed: true,
       }),
-      // 只重扫发生变化的顶层块，其余行号槽按位置平移复用；避免每键全量 descendants
-      apply: (tr, value) =>
-        tr.docChanged
-          ? { doc: tr.doc, set: updateDecorations(value.doc, tr.doc, value.set, buildRange) }
-          : value,
+      // 只重扫发生变化的顶层块，其余行号槽按位置平移复用；避免每键全量 descendants。
+      // 同时把「变化区间」存进 state：view.update 里只同步这几个块的 DOM 测量，
+      // 不再每键对整个视口做 posAtCoords（大文档里那一步要 2×9ms）。
+      apply: (tr, value) => {
+        if (!tr.docChanged) return value
+        const r: DecorationUpdate = updateDecorationsEx(value.doc, tr.doc, value.set, buildRange)
+        return { doc: tr.doc, set: r.set, ranges: r.ranges, changed: r.changed }
+      },
     },
     props: {
       decorations: (state) => key.getState(state)!.set,
@@ -191,6 +197,9 @@ export const codeBlockLineNumbers = $prose(() =>
     view: (view) => {
       let raf = 0
       let scrollRaf = 0
+      /** 上一次按视口同步时的滚动位置与容器高度：位移不足半个视口就跳过重算 */
+      let lastSyncScrollTop = -1
+      let lastSyncHeight = 0
       // 真正的滚动容器是 view.dom 的**可滚动祖先**（本应用里是包住编辑器的
       // <div class="milkdown overflow-auto">）。不能用 view.scrollDOM：ProseMirror
       // 的 scrollDOM 就是挂载点 .ProseMirror 本身（高度 = 全文高度），拿它算
@@ -202,8 +211,13 @@ export const codeBlockLineNumbers = $prose(() =>
         }
         return (document.scrollingElement as HTMLElement | null) ?? document.documentElement
       }
-      const scrollRoot: HTMLElement = findScrollParent(view.dom)
-      /** 同步单个代码块的行号槽（只对视口内的块调用） */
+      // 优先用已知的滚动容器（应用里就是 .milkdown），避免通用回溯里对每个祖先
+      // 调 getComputedStyle —— 那会在 4000+ 块的文档上触发一次全量样式重算，
+      // 实测 145ms，白白拖慢打开。
+      const scrollRoot: HTMLElement =
+        (view.dom.closest('.milkdown') as HTMLElement | null) ?? findScrollParent(view.dom)
+      const virtualized = () => !!view.dom.closest('.milkdown-virtualized')
+      /** 同步单个代码块的行号槽（只对已渲染的块调用） */
       const syncPre = (pre: HTMLElement) => {
         const gutter = pre.querySelector<HTMLElement>('.code-gutter')
         const code = pre.querySelector<HTMLElement>('code')
@@ -214,40 +228,10 @@ export const codeBlockLineNumbers = $prose(() =>
         alignGutterToPre(gutter, style, lh)
         syncGutterRows(gutter, code, lh)
       }
-      /** 同步视口内的代码块行号（文档变化 / 滚动 / 宽度变化后调用） */
-      const sync = () => {
-        raf = 0
+      /** 同步 [from, to) 区间内代码块的行号（区间按顶层块边界给出） */
+      const syncBlockRange = (from: number, to: number) => {
         if (view.isDestroyed) return
-        // 未虚拟化（< 3000 顶层块）：所有块都已真实渲染，全量同步最稳（约 1ms），
-        // 滚动时行号始终就绪，不会出现「滚过去先空一帧」。
-        if (!view.dom.closest('.milkdown-virtualized')) {
-          for (const pre of view.dom.querySelectorAll('.ProseMirror pre')) {
-            if (pre instanceof HTMLElement) syncPre(pre)
-          }
-          return
-        }
-        const rootRect = scrollRoot.getBoundingClientRect()
-        if (rootRect.height <= 0) return
-        // 虚拟化文档：只处理视口内的代码块，且**不对屏幕外的 <pre> 读几何**。
-        // content-visibility 跳过的块一旦被 getBoundingClientRect 读到，浏览器
-        // 就会把该块真实布局出来（等于废掉虚拟化）——600KB / 780 个代码块实测
-        // 一次约 1s，表现为打开/滚动大文件后整秒卡死。
-        // 这里用 posAtCoords 取视口顶部/底部的文档位置（内部走
-        // caretFromPoint/elementFromPoint，不遍历文本，约 0.5ms/次），
-        // 只处理这两个位置之间的代码块。
-        const x = rootRect.left + 24
-        const topHit = view.posAtCoords({ left: x, top: rootRect.top + 12 })
-        const bottomHit = view.posAtCoords({ left: x, top: rootRect.bottom - 12 })
-        // 视口顶/底落在内边距里时 posAtCoords 返回 null：只有「滚到最顶」才可
-        // 安全认为区间从文档开头算起，「滚到最底」同理；其余情况跳过本帧
-        //（下一次滚动/编辑再算），不做全量扫描。
-        const from = topHit ? topHit.pos : scrollRoot.scrollTop <= 4 ? 0 : -1
-        let to = bottomHit ? bottomHit.pos : -1
-        if (to < 0 && scrollRoot.scrollTop + scrollRoot.clientHeight >= scrollRoot.scrollHeight - 4) {
-          to = view.state.doc.content.size
-        }
-        if (from < 0 || to < 0) return
-        view.state.doc.nodesBetween(Math.min(from, to), Math.max(from, to), (node, pos) => {
+        view.state.doc.nodesBetween(from, to, (node, pos) => {
           if (node.type.name !== 'code_block' || node.content.size === 0) return
           const dom = view.nodeDOM(pos)
           if (!(dom instanceof HTMLElement)) return
@@ -255,18 +239,62 @@ export const codeBlockLineNumbers = $prose(() =>
           if (pre instanceof HTMLElement) syncPre(pre)
         })
       }
+      /** 同步视口内的代码块行号（滚动 / 宽度变化后调用） */
+      const syncVisible = () => {
+        raf = 0
+        if (view.isDestroyed) return
+        // 未虚拟化（< 3000 顶层块）：所有块都已真实渲染，全量同步最稳（约 1ms），
+        // 滚动时行号始终就绪，不会出现「滚过去先空一帧」。
+        if (!virtualized()) {
+          for (const pre of view.dom.querySelectorAll('.ProseMirror pre')) {
+            if (pre instanceof HTMLElement) syncPre(pre)
+          }
+          return
+        }
+        const rootRect = scrollRoot.getBoundingClientRect()
+        if (rootRect.height <= 0) return
+        lastSyncScrollTop = scrollRoot.scrollTop
+        lastSyncHeight = rootRect.height
+        // 虚拟化文档：只处理视口内的代码块，且**不对屏幕外的 <pre> 读几何**。
+        // content-visibility 跳过的块一旦被 getBoundingClientRect 读到，浏览器
+        // 就会把该块真实布局出来（等于废掉虚拟化）——600KB / 780 个代码块实测
+        // 一次约 1s，表现为打开/滚动大文件后整秒卡死。
+        // 这里用 posAtCoords 取视口顶部/底部的文档位置（内部走
+        // caretFromPoint/elementFromPoint，不遍历文本，约 0.5-9ms/次），
+        // 只处理这两个位置之间的代码块。
+        const x = rootRect.left + 24
+        // 顶部位置与大纲 scroll-spy 共用缓存（同一帧内只做一次命中测试）
+        const topPos = viewportTopPos(view, scrollRoot)
+        const bottomHit = view.posAtCoords({ left: x, top: rootRect.bottom - 12 })
+        // 视口顶/底落在内边距里时 posAtCoords 返回 null：只有「滚到最顶」才可
+        // 安全认为区间从文档开头算起，「滚到最底」同理；其余情况跳过本帧
+        //（下一次滚动/编辑再算），不做全量扫描。
+        const from = topPos !== null ? topPos : scrollRoot.scrollTop <= 4 ? 0 : -1
+        let to = bottomHit ? bottomHit.pos : -1
+        if (to < 0 && scrollRoot.scrollTop + scrollRoot.clientHeight >= scrollRoot.scrollHeight - 4) {
+          to = view.state.doc.content.size
+        }
+        if (from < 0 || to < 0) return
+        syncBlockRange(Math.min(from, to), Math.max(from, to))
+      }
       const schedule = () => {
         if (raf) return
-        raf = requestAnimationFrame(sync)
+        raf = requestAnimationFrame(syncVisible)
       }
       // 滚动时补充同步滚入视口的代码块行号（content-visibility 让屏幕外块
-      // 不渲染，行号需在可见时才补算）。节流到每帧一次。
+      // 不渲染，行号需在可见时才补算）。节流到每帧一次；滚动位移不到半个视口
+      // 时直接跳过——posAtCoords 在大文档里单次约 9ms，每帧都做会吃掉滚动帧率。
       const onScroll = () => {
         if (scrollRaf) return
         scrollRaf = requestAnimationFrame(() => {
           scrollRaf = 0
           if (raf) return
-          raf = requestAnimationFrame(sync)
+          if (!virtualized()) return
+          const h = scrollRoot.clientHeight
+          if (lastSyncScrollTop >= 0 && h === lastSyncHeight && Math.abs(scrollRoot.scrollTop - lastSyncScrollTop) < h / 2) {
+            return
+          }
+          raf = requestAnimationFrame(syncVisible)
         })
       }
       scrollRoot.addEventListener('scroll', onScroll, { passive: true })
@@ -278,11 +306,16 @@ export const codeBlockLineNumbers = $prose(() =>
         resizeObserver.observe(scrollRoot)
       }
       return {
-        // 仅文档内容变化时才同步行号；纯光标移动/选区变化不触发（避免
-        // 每按一次方向键都对全部 code 块强制重排）。
+        // 文档变化时只同步「本次真正改动的那几个块」。
+        //
+        // 旧实现在这里 schedule() 一整轮视口扫描：每次按键 2 次 posAtCoords，
+        // 616KB / 4345 块文档实测 2×9ms=18ms/键，是打字卡顿的头号来源。
+        // 变化的块一定在视口内（用户正在那里输入），直接按 pos 取 DOM 同步即可。
         update: (updatedView, prevState) => {
           if (updatedView.state.doc === prevState.doc) return
-          schedule()
+          const st = key.getState(updatedView.state)
+          if (!st?.changed || !st.ranges.length) return
+          for (const r of st.ranges) syncBlockRange(r.from, r.to)
         },
         destroy: () => {
           if (raf) cancelAnimationFrame(raf)

@@ -1361,12 +1361,12 @@ img.ProseMirror-separator {
   pointer-events: auto;
 }
 
-/* ── 专注模式（打字机居中）── */
-.typewriter-mode .milkdown .ProseMirror > :not(.typewriter-active) {
+/* ── 专注模式（F8）：淡化非当前段落；打字机模式（F9）只做居中，不淡化 ── */
+.focus-mode .milkdown .ProseMirror > :not(.typewriter-active) {
   opacity: 0.4;
   transition: opacity 0.25s ease;
 }
-.typewriter-mode .milkdown .ProseMirror > .typewriter-active {
+.focus-mode .milkdown .ProseMirror > .typewriter-active {
   transition: opacity 0.15s ease;
 }
 

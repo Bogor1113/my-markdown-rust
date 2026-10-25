@@ -82,6 +82,18 @@ const SettingsModal = () => {
   const resetAll = useShortcutsStore((s) => s.resetAll)
   const getKey = useShortcutsStore((s) => s.getKey)
 
+  // Esc 关闭：与其他浮层（查找栏 / 命令面板 / 右键菜单）保持一致。
+  // 走冒泡阶段是有意的——快捷键录入按钮在 window 捕获阶段就 stopPropagation 把 Esc
+  // 当作「取消录入」，此时不该连带把整个设置弹窗关掉。
+  useEffect(() => {
+    if (!settingsOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) closeSettings()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [settingsOpen, closeSettings])
+
   if (!settingsOpen) return null
 
   return (

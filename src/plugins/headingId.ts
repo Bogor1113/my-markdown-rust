@@ -18,38 +18,145 @@ import { $prose } from '@milkdown/kit/utils'
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { headingIdGenerator, headingSchema } from '@milkdown/kit/preset/commonmark'
+import type { Ctx } from '@milkdown/kit/ctx'
+import type { Node as PMNode } from '@milkdown/kit/prose/model'
+import { Fragment } from '@milkdown/kit/prose/model'
+import { diffTopLevelRanges } from '../utils/incrementalDecorations'
 
 const key = new PluginKey('MILKDOWN_HEADING_ID')
 
 /// 打字停顿多久后才重算标题 id。要大于连续击键间隔，保证热路径上一次都不跑。
 const DEBOUNCE_MS = 400
 
+/** 已经由 withHeadingIds 填好 id 的文档（按引用记）。
+ *
+ *  这些文档的标题 id 在**载入时**就算准了，插件 view 初始化不必再全量重算一遍。
+ *  别小看这一次：616KB / 1125 个标题实测 343ms，而它发生在「打开文件 / 切标签」
+ *  最敏感的时刻，且结果一定与已有 id 完全相同（纯浪费）。
+ *  WeakSet 用引用作键，快照缓存里的 state 天然命中（payload doc 就是同一个对象）。 */
+const preparedDocs = new WeakSet<PMNode>()
+
+/** 与上游 sync-heading-id-plugin 一致的 id 计算（含同 slug 去重 `-#N`） */
+function makeIdResolver(ctx: Ctx) {
+  const getId = ctx.get(headingIdGenerator.key)
+  const idMap: Record<string, number> = {}
+  return (node: PMNode): string => {
+    let id = getId(node)
+    if (idMap[id]) {
+      idMap[id] += 1
+      id += `-#${idMap[id]}`
+    } else idMap[id] = 1
+    return id
+  }
+}
+
+/**
+ * 载入文档时**一次性**把所有标题 id 写进 doc（纯函数式重建，不发事务）。
+ *
+ * 为什么必须这样做：解析器产出的标题 `id` 是空的，若留给 headingId 插件在载入后
+ * 用一个事务去补，那个事务里会有 N 个 `setNodeMarkup` 步骤（616KB / 1125 个标题）。
+ * ProseMirror 每执行一步都要复制一次文档顶层的 4345 个子节点数组，于是整件事退化
+ * 成 O(N²)：实测单次 dispatch 916ms，表现为「大文件刚打开、敲第一个字必卡一秒」。
+ *
+ * 这里改为在 `EditorState.create` 之前用一次 O(n) 的树重建把 id 填好：结构共享
+ * 让未改动的子树原样复用，成本约 10ms，且不产生任何事务与视图更新。
+ */
+export function withHeadingIds(ctx: Ctx, doc: PMNode): PMNode {
+  const hType = headingSchema.type(ctx)
+  const nextId = makeIdResolver(ctx)
+  const walk = (node: PMNode): PMNode => {
+    if (node.type === hType) {
+      // 与插件原逻辑一致：空标题不写 id
+      if (node.textContent.trim().length === 0) return node
+      const id = nextId(node)
+      const attrs = node.attrs as { id?: string }
+      if (attrs.id === id) return node
+      return node.type.create({ ...attrs, id }, node.content, node.marks)
+    }
+    if (node.isLeaf) return node
+    let modified = false
+    const kids: PMNode[] = []
+    node.forEach((child) => {
+      const next = walk(child)
+      if (next !== child) modified = true
+      kids.push(next)
+    })
+    return modified ? node.copy(Fragment.fromArray(kids)) : node
+  }
+  const out = walk(doc)
+  preparedDocs.add(out)
+  return out
+}
+
 export const headingIdPlugin = $prose((ctx) => {
   let timer: ReturnType<typeof setTimeout> | null = null
+  /** 正在派发自己产生的事务（改 id → 又触发 update），避免自激重算 */
+  let selfDispatch = false
 
   // 与上游 sync-heading-id-plugin 完全一致的 id 计算逻辑（含去重）。
   const updateId = (view: EditorView) => {
     if (view.composing) return
-    const getId = ctx.get(headingIdGenerator.key)
     const tr = view.state.tr.setMeta('addToHistory', false)
     let found = false
-    const idMap: Record<string, number> = {}
-    view.state.doc.descendants((node: any, pos: number) => {
-      if (node.type === headingSchema.type(ctx)) {
+    const nextId = makeIdResolver(ctx)
+    const hType = headingSchema.type(ctx)
+    view.state.doc.descendants((node: PMNode, pos: number) => {
+      if (node.type === hType) {
         if (node.textContent.trim().length === 0) return
         const attrs = node.attrs as { id?: string }
-        let id = getId(node)
-        if (idMap[id]) {
-          idMap[id] += 1
-          id += `-#${idMap[id]}`
-        } else idMap[id] = 1
+        const id = nextId(node)
         if (attrs.id !== id) {
           found = true
           tr.setMeta(key, true).setNodeMarkup(pos, undefined, { ...attrs, id })
         }
       }
     })
-    if (found) view.dispatch(tr)
+    if (found) {
+      selfDispatch = true
+      try {
+        view.dispatch(tr)
+      } finally {
+        selfDispatch = false
+      }
+    }
+  }
+
+  /**
+   * 这次改动是否可能影响标题 id。
+   *
+   * 全量重算要遍历 1125 个标题、逐个算 slug，616KB 文档实测 343ms —— 而它原本
+   * 挂在「任何改动停顿 400ms」之后，于是在正文里打了个字、发个呆，也会莫名其妙
+   * 卡一下。id 只会因为**标题自身的文本**变化而变，所以先看变化区间里有没有
+   * heading：没有就整轮跳过，有才排队重算。
+   */
+  const mayAffectHeading = (prevDoc: PMNode, nextDoc: PMNode): boolean => {
+    const ranges = diffTopLevelRanges(prevDoc, nextDoc)
+    if (!ranges) return false
+    if (ranges.some((r) => r.full)) return true
+    const hType = headingSchema.type(ctx)
+    for (const r of ranges) {
+      if (r.oldTo > r.oldFrom) {
+        let hit = false
+        prevDoc.nodesBetween(r.oldFrom, r.oldTo, (node) => {
+          if (node.type === hType) {
+            hit = true
+            return false
+          }
+        })
+        if (hit) return true
+      }
+      if (r.newTo > r.newFrom) {
+        let hit = false
+        nextDoc.nodesBetween(r.newFrom, r.newTo, (node) => {
+          if (node.type === hType) {
+            hit = true
+            return false
+          }
+        })
+        if (hit) return true
+      }
+    }
+    return false
   }
 
   // 防抖：连续打字时不断重置定时器，热路径上一次 updateId 都不跑；
@@ -66,11 +173,15 @@ export const headingIdPlugin = $prose((ctx) => {
   return new Plugin({
     key,
     view: (view: EditorView) => {
-      // 初始化立即算一次（与上游一致），保证文档加载后 id 即时正确。
-      updateId(view)
+      // 载入路径已经用 withHeadingIds 写好了全部 id，这里不必再算一遍
+      if (!preparedDocs.has(view.state.doc)) updateId(view)
       return {
         update: (view: EditorView, prevState: any) => {
-          if (view.state.doc.eq(prevState.doc)) return
+          if (selfDispatch) return
+          if (view.state.doc === prevState.doc) return
+          // 刚载入的文档：withHeadingIds 已写准 id，跳过
+          if (preparedDocs.has(view.state.doc)) return
+          if (!mayAffectHeading(prevState.doc, view.state.doc)) return
           schedule(view)
         },
         destroy: () => {

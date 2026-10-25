@@ -94,6 +94,33 @@ const EditorArea = () => {
       e.preventDefault()
       useAppStore.getState().toggleFullscreen()
     }
+    // Typora 键位：Ctrl+/ 源码模式、F8 专注（淡化）、F9 打字机（居中）、
+    // Ctrl+Shift+L 侧栏开关。这几条只在有 Markdown 标签时才有意义，且必须与
+    // 编辑器内的 Typora 键位（Ctrl+1..6 / Ctrl+Shift+K 等，由 plugins/typoraKeys.ts
+    // 处理）互不重叠。
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key === '/') {
+      const st = useAppStore.getState()
+      const tab = st.tabs.find((t) => t.id === st.activeTabId)
+      if (tab && /\.(md|markdown|mdx|mdown|mkd)$/i.test(tab.path)) {
+        e.preventDefault()
+        st.toggleSourceMode()
+        return
+      }
+    }
+    if (e.ctrlKey && e.shiftKey && !e.altKey && (e.key === 'L' || e.key === 'l')) {
+      e.preventDefault()
+      useAppStore.getState().toggleSidebar()
+      return
+    }
+    if (e.key === 'F8') {
+      e.preventDefault()
+      useAppStore.getState().toggleFocusMode()
+      return
+    }
+    if (e.key === 'F9') {
+      e.preventDefault()
+      useAppStore.getState().toggleTypewriterMode()
+    }
   }, [matchShortcut])
 
   useEffect(() => {

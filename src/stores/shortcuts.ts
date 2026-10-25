@@ -19,7 +19,9 @@ export const SHORTCUT_LIST: ShortcutDef[] = [
   { id: 'search', label: '全局搜索', defaultKey: 'Ctrl+Shift+F' },
   { id: 'find', label: '查找替换', defaultKey: 'Ctrl+F' },
   { id: 'palette', label: '命令面板', defaultKey: 'Ctrl+P' },
-  { id: 'paletteCmd', label: '命令面板 (K)', defaultKey: 'Ctrl+K' },
+  // Ctrl+K 让位给 Typora 的「插入链接」；命令面板改用 VS Code / Typora 都能接受的
+  // Ctrl+Shift+P 习惯位。用户已有的自定义绑定不受影响（overrides 优先）。
+  { id: 'paletteCmd', label: '命令面板', defaultKey: 'Ctrl+Shift+P' },
 ]
 
 function readShortcuts(): Record<string, string> {

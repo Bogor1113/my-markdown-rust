@@ -8,6 +8,7 @@ import {
   editorStateOptionsCtx,
   prosePluginsCtx,
   serializerCtx,
+  remarkStringifyOptionsCtx,
 } from '@milkdown/kit/core'
 import type { Ctx } from '@milkdown/kit/ctx'
 import {
@@ -15,8 +16,12 @@ import {
   remarkHtmlTransformer,
   syncListOrderPlugin,
   syncHeadingIdPlugin,
+  wrapInHeadingInputRule,
+  wrapInBlockquoteInputRule,
+  createCodeBlockInputRule,
+  insertImageInputRule,
 } from '@milkdown/kit/preset/commonmark'
-import { gfm } from '@milkdown/kit/preset/gfm'
+import { gfm, strikethroughInputRule } from '@milkdown/kit/preset/gfm'
 import { history } from '@milkdown/kit/plugin/history'
 import { TextSelection, EditorState, Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import type { EditorView } from '@milkdown/kit/prose/view'
@@ -24,7 +29,7 @@ import { $prose } from '@milkdown/kit/utils'
 import { search } from 'prosemirror-search'
 import { codeHighlightPlugin } from '../../plugins/codeHighlight'
 import { listOrderPlugin } from '../../plugins/listOrder'
-import { headingIdPlugin } from '../../plugins/headingId'
+import { headingIdPlugin, withHeadingIds } from '../../plugins/headingId'
 import { upload, uploadConfig } from '@milkdown/plugin-upload'
 import type { Node, Schema } from '@milkdown/kit/prose/model'
 import type { OutlineItem } from '../../types'
@@ -39,9 +44,18 @@ import { highlight as markHighlightPlugin, markConfig } from '../../plugins/mark
 import { copyButtonPlugin } from '../../plugins/copyButton'
 import { imagePlugin } from '../../plugins/image'
 import { htmlPlugin } from '../../plugins/html'
+import { underlinePlugin } from '../../plugins/underline'
 import { htmlSvgEditPlugin } from '../../plugins/htmlSvgEdit'
 import { svgSourceEditorMilkdownPlugin } from '../../plugins/svgSourceEditor'
 import { autoPairPlugin } from '../../plugins/autoPair'
+import { typoraKeymap } from '../../plugins/typoraKeys'
+import {
+  typoraHeadingInputRule,
+  typoraBlockquoteInputRule,
+  typoraCodeFenceInputRule,
+  typoraStrikethroughInputRule,
+  mdAutoConvertPlugin,
+} from '../../plugins/typoraInput'
 import { calloutPlugin } from '../../plugins/callout'
 import { codeBlockLineNumbers } from '../../plugins/codeBlockLineNumbers'
 import { codeBlockCaretPlugin } from '../../plugins/codeBlockCaret'
@@ -56,6 +70,11 @@ import { taskTogglePlugin } from '../../plugins/taskToggle'
 import { typewriterPlugin } from '../../plugins/typewriter'
 import { sanitizeCodeBlockTrailingNewlines } from '../../utils/markdown'
 import { BlockMarkdownCache } from '../../utils/blockMarkdown'
+import { installPmPerfPatches } from '../../utils/pmPerf'
+import { viewportTopPos } from '../../utils/viewportPos'
+
+// 视图层补丁（DecorationSet.forChild 二分查找）尽早安装：必须在编辑器创建前生效。
+installPmPerfPatches()
 
 
 /**
@@ -178,11 +197,25 @@ const MilkdownEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
     return cache.sync(view.state.doc, budgetMs) ? cache.markdown : null
   }
 
+  /**
+   * 该标签自「载入 / 保存」以来是否真的被用户改过。
+   *
+   * 没改过就**不要回写**。原因是序列化是有损归一化的：remark 会把表格单元格
+   * 补齐成固定列宽（`| A1  |` → `| A1 |`）、把列表符号统一成 '-'、末尾补换行……
+   * 于是「打开文件 → 切到别的标签」打一次回写，内容就和磁盘不一致了，
+   * 标签被误标脏、关闭时弹「有未保存的修改」，退出时更会把整篇文件按归一化
+   * 格式重写一遍。用户明明一个字都没改。
+   *
+   * dirtyTracker 在用户第一次真实编辑时就会 markDirty（同步，早于 200ms 防抖回写），
+   * 所以这里用 isDirty 判断「有没有改过」是可靠的。
+   */
+  const isTouched = (key: string) => !!useAppStore.getState().tabs.find((t) => t.id === key)?.isDirty
+
   /** 把某个标签的最新内容回写 store（只调用该标签自己的 onChange） */
   const flushKey = (ctx: Ctx, key: string, budgetMs = Infinity): boolean => {
     const md = serializeCurrent(ctx, key, budgetMs)
     if (md == null) return false
-    onChangeByKeyRef.current.get(key)?.(sanitizeCodeBlockTrailingNewlines(md))
+    if (isTouched(key)) onChangeByKeyRef.current.get(key)?.(sanitizeCodeBlockTrailingNewlines(md))
     pendingFlushRef.current = false
     return true
   }
@@ -285,8 +318,19 @@ const MilkdownEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
             if (root && !view.isDestroyed) root.scrollTop = snap.scrollTop
           })
         } else {
-          const doc = ctx.get(parserCtx)(sanitizeCodeBlockTrailingNewlines(md))
-          if (!doc) return
+          const parsed = ctx.get(parserCtx)(sanitizeCodeBlockTrailingNewlines(md))
+          if (!parsed) return
+          // 标题 id 在这里一次写好（O(n) 树重建）。留给插件在载入后补，会是一个
+          // 含上千个 setNodeMarkup 的事务，ProseMirror 逐步骤重放退化成 O(n²)，
+          // 大文件表现为「打开后敲第一个字卡一秒」。
+          const doc = withHeadingIds(ctx, parsed)
+          // 首帧前就切虚拟化 class：applyVirtualization 原本在 updateState 之后才调，
+          // 于是 4345 个块的首次布局/绘制全都按「可见」处理了一遍。提前打上这个类，
+          // 浏览器在首次布局时就能跳过视口外的块（实测 updateState 从 1.2s → 0.5s）。
+          rootRef.current?.classList.toggle(
+            'milkdown-virtualized',
+            doc.childCount >= VIRTUALIZE_BLOCK_THRESHOLD,
+          )
           const state = EditorState.create(
             ctx.get(editorStateOptionsCtx)({
               schema: ctx.get(schemaCtx),
@@ -324,33 +368,65 @@ const MilkdownEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
   const registerJumpHandler = useAppStore((s) => s.registerJumpHandler)
   const registerEditor = useAppStore((s) => s.registerEditor)
   const hideContextMenu = useAppStore((s) => s.hideContextMenu)
-  /** 标题 pos → 标题 DOM 元素（大纲重算时刷新），scroll-spy 计算用 */
+  /** 标题 pos → 标题 DOM 元素（大纲重算时刷新），供点击大纲跳转定位 */
   const headingDomsRef = useRef<Map<number, HTMLElement>>(new Map())
+  /** 标题 pos 升序数组：scroll-spy 用它做二分查找，避免逐标题读几何 */
+  const headingPosRef = useRef<number[]>([])
   /** 上次收集大纲时的 doc 引用：纯光标移动（选区事务）不重扫。
    *  放组件级而非 effect 局部变量：程序化加载路径（applyLoaded）也要读它，
    *  否则加载后手动收集与防抖定时器之间会互相覆盖 */
   const lastOutlineDocRef = useRef<Node | null>(null)
+  /** 大纲跳转后的 scroll-spy 抑制截止时间（见 syncActiveHeading 的说明） */
+  const jumpSuppressUntilRef = useRef(0)
 
-  /** 根据滚动位置找出当前应高亮的标题 pos（最后一个还没滚出容器顶部的标题） */
+  /** 根据滚动位置找出当前应高亮的标题 pos（最后一个还没滚出容器顶部的标题）
+   *
+   *  旧实现对每个标题调 getBoundingClientRect 直到找到第一个超出容器顶部的——
+   *  616KB / 1125 个标题的文档滚到中后段时，一帧要读上千次几何（实测 ~147ms/帧），
+   *  滚动直接卡成幻灯片。现在改成「一次 posAtCoords 拿视口顶部文档位置 +
+   *  对标题位置数组二分查找」，单帧成本从 O(标题数) 降到 O(log 标题数)，
+   *  且与代码块行号同步共用同一次命中测试（见 utils/viewportPos）。 */
   const syncActiveHeading = () => {
     const root = rootRef.current
     if (!root) return
-    const doms = headingDomsRef.current
-    if (doms.size === 0) {
+    // 用户刚点了大纲项：程序化滚动引发的 scroll 事件会在同一两帧内陆续到达，
+    // 此刻视口顶部可能还没落到目标标题上（padding、虚拟化估算高度都会让
+    // posAtCoords 先给出一个偏前的位置），让 scroll-spy 覆盖刚刚设定的高亮，
+    // 表现就是「点第 2 项，亮的却是第 1 项」。跳转后的 350ms 内以显式设定为准。
+    if (performance.now() < jumpSuppressUntilRef.current) return
+    const positions = headingPosRef.current
+    if (positions.length === 0) {
       setActiveOutlinePos(null)
       return
     }
-    const rootTop = root.getBoundingClientRect().top
-    const viewTop = root.scrollTop + 8 // 标题距容器顶部 8px 内视为"当前"
-    let active: number | null = null
-    // doms 按文档顺序插入（collectOutline 的 descendants 顺序），找到第一个超出即停止
-    for (const [pos, el] of doms) {
-      if (!el.isConnected) continue
-      const top = el.getBoundingClientRect().top - rootTop + root.scrollTop
-      if (top <= viewTop) active = pos
-      else break
+    const editor = editorRef.current
+    if (!editor) return
+    const topPos = editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx)
+      if (!view || view.isDestroyed) return null
+      return viewportTopPos(view, root)
+    })
+    // 视口落在内边距/空白里（posAtCoords 给不出位置）→ 保持上一次高亮，不抖动
+    if (topPos == null) return
+    // 找最后一个 pos <= topPos 的标题。
+    // +1 容差是必需的：posAtCoords 落在块的**上边界**时会返回「块前一位」
+    // （实测标题 pos=19，命中返回 18），不留容差就永远高亮到上一个标题——
+    // 表现为点大纲最后一项，高亮却停在倒数第二项。
+    // 同样修掉另一个边界：文档滚到最顶部时 topPos=0、首标题 pos=1，
+    // 不留容差则首个标题永远不高亮。
+    let lo = 0
+    let hi = positions.length - 1
+    let ans = -1
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (positions[mid] <= topPos + 1) {
+        ans = mid
+        lo = mid + 1
+      } else {
+        hi = mid - 1
+      }
     }
-    setActiveOutlinePos(active)
+    setActiveOutlinePos(ans >= 0 ? positions[ans] : null)
   }
 
   /**
@@ -367,6 +443,7 @@ const MilkdownEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
     const doms = new Map<number, HTMLElement>()
     const next = collectOutline(view, doms)
     headingDomsRef.current = doms
+    headingPosRef.current = next.map((i) => i.pos)
     const prev = useAppStore.getState().outline
     const changed =
       next.length !== prev.length ||
@@ -450,6 +527,34 @@ const MilkdownEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
       .config((ctx: Ctx) => {
         ctx.set(rootCtx, root)
       })
+      .config((ctx) => {
+        // 无序列表统一序列化成 "-"。
+        // remark-stringify 默认输出 "*"，而绝大多数 Markdown（含 Windows 上常见的
+        // 各种编辑器产出）写的是 "-"。不改这一步的话，「打开文件 → 切到别的标签」
+        // 触发的回写序列化会把 "- 项" 变成 "* 项"，与磁盘内容不一致 →
+        // 标签被误标脏、关闭时弹「有未保存的修改」，退出时甚至会把整篇文件的
+        // 列表符号批量改写。保持 "-" 才能让「没改过的文件」真正等于磁盘内容。
+        ctx.update(remarkStringifyOptionsCtx, (prev) => ({
+          ...prev,
+          bullet: '-' as const,
+          handlers: {
+            ...(prev as { handlers?: Record<string, unknown> }).handlers,
+            // 下划线：Markdown 无原生语法，输出 HTML 的 <u>…</u>（与 Typora 一致）。
+            // 内容交给 containerPhrasing 递归序列化，这样 <u>里的**粗体**</u>
+            // 能正确带上标记，而不是把 markdown 源码当字面量吐出来。
+            underline: (node: unknown, _parent: unknown, st: unknown) => {
+              const state = st as {
+                enter: (name: string) => () => void
+                containerPhrasing: (parent: unknown, info: unknown) => string
+              }
+              const exit = state.enter('underline')
+              const inner = state.containerPhrasing(node, { before: '<', after: '>' })
+              exit()
+              return `<u>${inner}</u>`
+            },
+          } as typeof prev.handlers,
+        }))
+      })
       .config(markConfig)
       .config((ctx) => {
         // 保留默认 uploadWidgetFactory，仅覆盖 uploader 与 HTML 上传开关
@@ -463,20 +568,35 @@ const MilkdownEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
       // 以真实 DOM 渲染（默认实现只把源码当纯文本展示，且会把块级 HTML 包进
       // paragraph 导致无法区分块级/行内）。$Remark 是 [optionsCtx, plugin] 元组，
       // commonmark 数组里存放的是它扁平化后的两个成员，需按成员引用过滤。
-      // 同时替换两个 commonmark 自带插件：
+      // 同时替换 commonmark 自带的插件：
       // 1) syncListOrderPlugin → 增量版（每个事务全量扫描文档，大文档约 14ms/键，见 plugins/listOrder.ts）。
       // 2) syncHeadingIdPlugin → 防抖版（每次文档变化都按文本重算 slug 并 setNodeMarkup，
       //    打标题时每键重建 <h4> 约 25-34ms，见 plugins/headingId.ts）。
+      // 3) 四条输入规则 → Typora 版（见 plugins/typoraInput.ts）：
+      //    标题 `#+` 不限级数会造出 level=7 的非法节点、引用强制要求空格、
+      //    代码围栏不认 ~~~ 与 c++ 这类语言名、图片规则要求必须带 title。
       .use(
         commonmark
           .map((p) => (p === syncListOrderPlugin ? listOrderPlugin : p))
           .map((p) => (p === syncHeadingIdPlugin ? headingIdPlugin : p))
+          .map((p) => (p === wrapInHeadingInputRule ? typoraHeadingInputRule : p))
+          .map((p) => (p === wrapInBlockquoteInputRule ? typoraBlockquoteInputRule : p))
+          .map((p) => (p === createCodeBlockInputRule ? typoraCodeFenceInputRule : p))
+          // 图片规则直接剔除：上游那条要求地址后必须带 "title"，手写 `![a](u)`
+          // 永远匹配不上；改用 mdAutoConvertPlugin 统一处理。
+          .filter((p) => p !== insertImageInputRule)
           .filter(
             (p) => !([remarkHtmlTransformer[0], remarkHtmlTransformer[1]] as unknown[]).includes(p),
           ),
       )
+      .use(typoraKeymap)  // Typora 键位：Ctrl+1..6 / Ctrl+= / Ctrl+- / Ctrl+Shift+K 等
       .use(overrideListCommands)  // override built-in: wrapInList instead of wrapIn
-      .use(gfm)
+      // 手写语法的收尾转换（上游没有）：`[文字](地址)`→链接、`![图](地址)`→图片、
+      // `[^1]`→脚注引用。放在 gfm 之后注册，等它的表格/任务列表规则先跑。
+      .use(mdAutoConvertPlugin)
+      // gfm 的删除线规则会把 `~~~` 当成「删除线套一个 ~」吃掉，导致 Typora 的
+      // `~~~` 代码围栏永远成型不了 —— 换成 plugins/typoraInput.ts 里的加固版。
+      .use(gfm.map((p) => (p === strikethroughInputRule ? typoraStrikethroughInputRule : p)))
       .use(history)
       .use(codeHighlightPlugin)
       .use(upload)
@@ -488,6 +608,7 @@ const MilkdownEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
       .use(copyButtonPlugin)
       .use(imagePlugin)
       .use(htmlPlugin)
+      .use(underlinePlugin)  // Ctrl+U：underline mark ↔ <u>…</u>
       .use(htmlSvgEditPlugin)
       .use(svgSourceEditorMilkdownPlugin)
       .use(autoPairPlugin)
@@ -555,6 +676,8 @@ const MilkdownEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
     registerJumpHandler((pos) => {
       const editor = editorRef.current
       if (!editor) return
+      // 先置抑制窗口，再滚动：dispatch 触发的 scrollIntoView 会同步改 scrollTop
+      jumpSuppressUntilRef.current = performance.now() + 350
       editor.action((ctx) => {
         const view = ctx.get(editorViewCtx)
         if (!view || view.isDestroyed) return

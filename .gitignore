@@ -76,3 +76,8 @@ Thumbs.db
 
 # ---------- 调试 / 临时产物 ----------
 temp-docx-test/
+# 性能基准与 UI 回归的输出（每次跑都会重新生成，只保留工具脚本）
+perf-*.json
+prof-*.json
+ui-test-result.json
+ui-*.png

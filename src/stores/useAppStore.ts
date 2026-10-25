@@ -346,9 +346,18 @@ interface AppState {
   setSearchQuery: (query: string) => void
   runSearch: (query: string) => Promise<void>
 
-  // ── 专注模式 ──
+  // ── 专注 / 打字机模式 ──
+  /** 专注模式（F8）：淡化非当前段落，不改变滚动位置 */
   focusMode: boolean
   toggleFocusMode: () => void
+  /** 打字机模式（F9）：当前段落始终保持在视口垂直中央，不淡化其它段落 */
+  typewriterMode: boolean
+  toggleTypewriterMode: () => void
+
+  // ── 侧栏 ──
+  /** 左侧文件树是否可见（Ctrl+Shift+L）。隐藏时正文区域自动占满，宽度不丢失 */
+  sidebarVisible: boolean
+  toggleSidebar: () => void
 
   // ── 全屏模式（F11） ──
   isFullscreen: boolean
@@ -516,9 +525,15 @@ export const useAppStore = create<AppState>()(
     }
   },
 
-  // ── 专注模式 ──
+  // ── 专注 / 打字机模式 ──
   focusMode: false,
   toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
+  typewriterMode: false,
+  toggleTypewriterMode: () => set((s) => ({ typewriterMode: !s.typewriterMode })),
+
+  // ── 侧栏 ──
+  sidebarVisible: true,
+  toggleSidebar: () => set((s) => ({ sidebarVisible: !s.sidebarVisible })),
 
   // ── 全屏模式（F11） ──
   isFullscreen: false,

@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../../stores/useAppStore'
 import { useSettingsStore } from '../../stores/settings'
 import { isMarkdown } from '../../utils/files'
@@ -35,6 +35,8 @@ const StatusBar = () => {
   const tabs = useAppStore((s) => s.tabs)
   const focusMode = useAppStore((s) => s.focusMode)
   const toggleFocusMode = useAppStore((s) => s.toggleFocusMode)
+  const typewriterMode = useAppStore((s) => s.typewriterMode)
+  const toggleTypewriterMode = useAppStore((s) => s.toggleTypewriterMode)
   const isFullscreen = useAppStore((s) => s.isFullscreen)
   const toggleFullscreen = useAppStore((s) => s.toggleFullscreen)
   const spellcheck = useSettingsStore((s) => s.spellcheck)
@@ -48,21 +50,34 @@ const StatusBar = () => {
   const sourceMode = isMdTab && !!activeTab?.sourceMode
   const toggleSourceMode = useAppStore((s) => s.toggleSourceMode)
 
-  // countStats 会对整篇文档跑 11 个全量正则，是 O(文档长度) 的重活。
-  // 之前它直接依赖 activeTab.content，于是**每敲一个字符**都要全量统计一遍
-  // （5 万字文档约 3–8ms/键），与编辑器自身渲染叠加后表现为输入粘滞。
+  // countStats 会对整篇文档跑十余次全量正则，是 O(文档长度) 的重活
+  // （616KB 课件实测 ~16ms）。之前它直接依赖 activeTab.content，于是**每次回写**
+  // 都要全量统计一遍；useDeferredValue 只是把它降级为低优先级渲染，主线程照样
+  // 被占住，而且它正好落在「输入停顿 200ms 回写」那一刻，直接顶高了下一次按键的
+  // 响应延迟（实测 input 事件 p90 达到 300ms）。
   //
-  // useDeferredValue 把它降级为低优先级渲染：连续输入时这次渲染会被下一次输入
-  // 打断并丢弃，只有在用户停顿后才真正算出结果并被提交。
-  // 输入路径因此完全不被统计阻塞，而用户看到的数字只是延迟了不到一帧。
-  const deferredContent = useDeferredValue(activeTab?.content ?? '')
+  // 现在改成「停下 600ms 才统计一次」：连续输入期间完全不进入统计路径，
+  // 切标签时立即结算一次（用户确实在等这组数字）。
+  const content = activeTab?.content ?? ''
+  const [statContent, setStatContent] = useState(content)
+  const statTabRef = useRef(activeTabId)
+  useEffect(() => {
+    const switched = statTabRef.current !== activeTabId
+    statTabRef.current = activeTabId
+    if (switched) {
+      setStatContent(content)
+      return
+    }
+    const t = setTimeout(() => setStatContent(content), 600)
+    return () => clearTimeout(t)
+  }, [content, activeTabId])
 
   const stats = useMemo(() => {
     if (!hasTab) return null
-    return countStats(deferredContent)
+    return countStats(statContent)
     // 注意依赖里用 hasTab 而不是 activeTab：activeTab 每次输入都是新对象引用，
-    // 放进依赖会让 useMemo 完全失效，deferred 也就白做了。
-  }, [hasTab, deferredContent])
+    // 放进依赖会让 useMemo 完全失效。
+  }, [hasTab, statContent])
 
   const [showStats, setShowStats] = useState(false)
 
@@ -122,9 +137,16 @@ const StatusBar = () => {
         <button
           className={`mditor-statusbar-btn${focusMode ? ' active' : ''}`}
           onClick={toggleFocusMode}
-          title={focusMode ? '退出专注模式' : '专注模式（打字机居中）'}
+          title={focusMode ? '退出专注模式 (F8)' : '专注模式：淡化非当前段落 (F8)'}
         >
           专注
+        </button>
+        <button
+          className={`mditor-statusbar-btn${typewriterMode ? ' active' : ''}`}
+          onClick={toggleTypewriterMode}
+          title={typewriterMode ? '退出打字机模式 (F9)' : '打字机模式：当前段落固定居中 (F9)'}
+        >
+          打字机
         </button>
         <button
           className={`mditor-statusbar-btn${isFullscreen ? ' active' : ''}`}

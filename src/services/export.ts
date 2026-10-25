@@ -14,6 +14,7 @@ import { readFileBytes, writeFile, fileSize, bytesToBase64 } from './fs'
 import { toLocalAbsPath } from './imageDisplay'
 import { parentDirOf, joinPath, basenameOf } from '../utils/files'
 import { slugifyHeading } from '../utils/markdown'
+import { flushAllCodeHighlight } from '../plugins/codeHighlight'
 
 /** 转义 HTML 特殊字符（用于标题等） */
 function escapeHtml(str: string): string {
@@ -135,8 +136,13 @@ function cleanEditorDom(root: HTMLElement): void {
   root.removeAttribute('contenteditable')
   root.removeAttribute('spellcheck')
   root.querySelectorAll('[contenteditable]').forEach((el) => el.removeAttribute('contenteditable'))
-  // 代码块语言徽标 / 表格列宽拖拽手柄（编辑器 UI，不应出现在导出文档里）
-  root.querySelectorAll('.code-lang-badge, .mditor-table-resize-handle, .code-copy-btn').forEach((el) => el.remove())
+  // 代码块语言徽标 / 行号槽 / 表格列宽拖拽手柄（编辑器 UI，不应出现在导出文档里）
+  // 行号槽必须删：它是个绝对定位的 div，导出样式里没有对应 CSS，留着就是
+  // 780 个空 div 白占体积；而且行号只在视口内的块上才被填过内容，留着还会
+  // 造成「一部分代码块有行号、一部分没有」的不一致。
+  root
+    .querySelectorAll('.code-lang-badge, .mditor-table-resize-handle, .code-copy-btn, .code-gutter')
+    .forEach((el) => el.remove())
   // 空文档占位符
   root.querySelectorAll('p.is-editor-empty').forEach((el) => el.classList.remove('is-editor-empty'))
 }
@@ -230,6 +236,10 @@ async function buildExportBody(
   return editor.action(async (ctx) => {
     const view = ctx.get(editorViewCtx)
     if (!view || view.isDestroyed) return null
+
+    // 语法高亮是按视口懒生成的：屏幕外的代码块可能还没上色。导出是克隆 DOM，
+    // 不先补齐的话导出的文件会缺掉大半代码着色。
+    flushAllCodeHighlight(view)
 
     // 克隆 ProseMirror 渲染 DOM 作为文档本体
     const proseMirror = view.dom.cloneNode(true) as HTMLElement
