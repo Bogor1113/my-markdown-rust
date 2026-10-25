@@ -3,12 +3,12 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import AppLayout from './components/Layout/AppLayout'
-import { syncDirtyFiles, takePendingOpenFiles, createFile } from './services/fs'
+import { syncDirtyFiles, takePendingOpenFiles } from './services/fs'
 import { setupFsWatcher, watchDirectory, stopWatching } from './services/watcher'
 import { useAppStore } from './stores/useAppStore'
 import { useSettingsStore } from './stores/settings'
 import { useShortcutsStore } from './stores/shortcuts'
-import { joinPath, basenameOf } from './utils/files'
+import { promptNewMarkdownFile } from './services/newFile'
 
 /** 待打开文件 Promise：模块级缓存，StrictMode 双挂载时两个 effect 运行共享同一 Promise，
  *  避免第一次运行取走文件列表后被 cancelled 丢弃、第二次运行拿到空列表 */
@@ -218,68 +218,40 @@ function App() {
   }, [])
 
   // 托盘菜单「新建文件」：用户点击托盘 → Rust 呼出主界面并广播 tray-new-file，
-  // 这里复用侧边栏的新建文件交互（名称校验 + 在根目录创建 .md）
+  // 交互与 Ctrl+N 完全一致（共用 promptNewMarkdownFile）
   useEffect(() => {
     let unlisten: UnlistenFn | null = null
-    // 与 TreeContextMenu 保持一致的文件名校验规则
-    const nameValidate = (label: string) => (value: string) => {
-      const v = value.trim()
-      if (!v) return `${label}不能为空`
-      if (/[\\/:*?"<>|]/.test(v)) return `${label}不能包含 \\ / : * ? " < > |`
-      return null
-    }
-    void listen('tray-new-file', () => {
-      const s = useAppStore.getState()
-      const root = s.rootPath
-      if (!root) {
-        s.showToast('请先在应用内打开一个文件夹')
-        return
-      }
-      s.openPrompt({
-        title: '新建文件',
-        fields: [
-          {
-            id: 'name',
-            label: '文件名',
-            placeholder: '如 note（自动补 .md）',
-            validate: (value) => {
-              const err = nameValidate('文件名')(value)
-              if (err) return err
-              const v = value.trim()
-              if (v.startsWith('.')) return '文件不能以 . 开头'
-              const dot = v.lastIndexOf('.')
-              if (dot > 0) {
-                const ext = v.slice(dot + 1).toLowerCase()
-                if (ext && ext !== 'md' && ext !== 'markdown') return '仅支持 .md / .markdown 格式'
-              }
-              return null
-            },
-          },
-        ],
-        confirmLabel: '创建',
-        onConfirm: (v) => {
-          const raw = v.name.trim()
-          const name = /\.(md|markdown)$/i.test(raw) ? raw : `${raw}.md`
-          const target = joinPath(root, name)
-          void (async () => {
-            try {
-              await createFile(target)
-              s.showToast(`已创建 ${basenameOf(target)}`)
-              // 刷新文件树并打开新文件
-              await s.loadDirectory(root).catch(() => {})
-              await s.openFile(target)
-            } catch (e) {
-              s.showToast(`创建文件失败：${e}`)
-            }
-          })()
-        },
-      })
-    }).then((fn) => {
+    void listen('tray-new-file', () => promptNewMarkdownFile()).then((fn) => {
       unlisten = fn
     })
     return () => {
       unlisten?.()
     }
+  }, [])
+
+  // Ctrl+N 新建文件。
+  //
+  // 之前应用根本没绑这个键（新建入口只在文件树右键菜单里），按下去毫无反应；
+  // WebView2 也不会自己处理，属于纯功能缺失。键位与 Typora 保持一致。
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (useAppStore.getState().promptDialog) return
+      const key = useShortcutsStore.getState().getKey('newFile')
+      const parts = key.split('+')
+      const needCtrl = parts.includes('Ctrl')
+      const needShift = parts.includes('Shift')
+      const needAlt = parts.includes('Alt')
+      const mainKey = parts[parts.length - 1]
+      const hasCtrl = e.ctrlKey || e.metaKey
+      if (needCtrl !== hasCtrl) return
+      if (needShift !== e.shiftKey) return
+      if (needAlt !== e.altKey) return
+      if (e.key.toLowerCase() !== mainKey.toLowerCase()) return
+      e.preventDefault()
+      promptNewMarkdownFile()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
   }, [])
 
   // 拖入打开：Rust 侧监听到文件/文件夹拖入窗口后，分别处理

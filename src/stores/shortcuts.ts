@@ -15,6 +15,7 @@ export interface ShortcutDef {
 /** 所有可自定义的快捷键 */
 export const SHORTCUT_LIST: ShortcutDef[] = [
   { id: 'save', label: '保存文件', defaultKey: 'Ctrl+S' },
+  { id: 'newFile', label: '新建文件', defaultKey: 'Ctrl+N' },
   { id: 'fullscreen', label: '全屏模式', defaultKey: 'F11' },
   { id: 'search', label: '全局搜索', defaultKey: 'Ctrl+Shift+F' },
   { id: 'find', label: '查找替换', defaultKey: 'Ctrl+F' },

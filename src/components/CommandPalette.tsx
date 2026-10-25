@@ -9,6 +9,7 @@ import {
   validateDocument,
 } from '../plugins/docActions'
 import { exportPdf, exportHtml } from '../services/export'
+import { promptNewMarkdownFile } from '../services/newFile'
 
 interface CommandItem {
   id: string
@@ -37,6 +38,7 @@ function buildCommands(): CommandItem[] {
   }))
   return [
     ...themeCommands,
+    { id: 'newFile', title: '新建文件（Ctrl+N）', run: () => promptNewMarkdownFile() },
     { id: 'focus', title: '切换专注模式（淡化其它段落）', run: () => s.toggleFocusMode() },
     { id: 'typewriter', title: '切换打字机模式（当前段落居中）', run: () => s.toggleTypewriterMode() },
     { id: 'sidebar', title: '显示 / 隐藏侧栏', run: () => s.toggleSidebar() },

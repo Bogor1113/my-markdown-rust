@@ -22,6 +22,7 @@ import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import type { Node } from '@milkdown/kit/prose/model'
+import type { ResolvedPos } from '@milkdown/kit/prose/model'
 import { highlightParser } from '../config/lowlight'
 import { updateDecorationsEx } from '../utils/incrementalDecorations'
 import { viewportTopPos } from '../utils/viewportPos'
@@ -63,6 +64,25 @@ interface HLState {
   done: Set<number>
   /** 顺序补齐扫描到的文档位置 */
   scanPos: number
+  /** 打字期间被「跳过重算」的代码块范围，停手后要补算（见 apply 内注释） */
+  dirty: { from: number; to: number } | null
+}
+
+/**
+ * 光标所在代码块的范围；不在代码块里返回 null。
+ *
+ * 用来判断「这次文档变化是不是用户在代码块里打字」——那种情况下不能重算
+ * 这块的高亮，原因见 apply 里的长注释。
+ */
+const codeBlockHost = ($from: ResolvedPos): { from: number; to: number } | null => {
+  for (let d = $from.depth; d > 0; d--) {
+    const node = $from.node(d)
+    if (node.type.name === 'code_block') {
+      const from = $from.before(d)
+      return { from, to: from + node.nodeSize }
+    }
+  }
+  return null
 }
 
 /**
@@ -102,10 +122,41 @@ export const codeHighlightPlugin = $prose(
             set: DecorationSet.create(state.doc, build(state.doc, 0, seedTo)),
             done,
             scanPos: seedTo,
+            dirty: null,
           }
         },
-        apply: (tr, value) => {
+        apply: (tr, value, _oldState, newState) => {
           if (tr.docChanged) {
+            // ⚠️ 在代码块里打字时**不能**重算这一块的高亮。
+            //
+            // 高亮是行内 Decoration，一旦结果变了，ProseMirror 就会重建代码块
+            // 内部那串 <span>；重建的瞬间 contenteditable 里的 DOM selection
+            // 指向的是已经被换掉的文本节点，下一个字符进来时 PM 用 posAtDOM
+            // 反推位置失败，退回到块首 —— 表现为「字倒着插」：
+            // 输入 `const a = 1` 存盘变成 ` a = 1const`，整段语法全毁。
+            //
+            // 真机上必现（`const` 打完就从普通文本变成 keyword，那一下正好触发重算），
+            // 这里改成：打字期间只按 StepMap 平移旧装饰（DOM 结构不变，
+            // 光标安全），把块范围记进 dirty，停手 400ms 后再重算一次。
+            const host = codeBlockHost(newState.selection.$from)
+            if (host) {
+              const done = new Set<number>()
+              for (const p of value.done) {
+                const m = tr.mapping.mapResult(p, 1)
+                if (!m.deleted) done.add(m.pos)
+              }
+              return {
+                doc: tr.doc,
+                set: value.set.map(tr.mapping, tr.doc),
+                done,
+                scanPos: tr.mapping.map(value.scanPos, 1),
+                dirty: {
+                  from: tr.mapping.map(host.from, -1),
+                  to: tr.mapping.map(host.to, 1),
+                },
+              }
+            }
+
             const r = updateDecorationsEx(value.doc, tr.doc, value.set, build)
             // done 里记的是旧坐标，按本次事务的 mapping 平移；被删除的丢弃
             const done = new Set<number>()
@@ -127,11 +178,12 @@ export const codeHighlightPlugin = $prose(
               set: r.set,
               done,
               scanPos: tr.mapping.map(value.scanPos, 1),
+              dirty: null,
             }
           }
 
-          // 后台 / 滚动触发的「补一段高亮」请求
-          const req = tr.getMeta(key) as { from: number; to: number } | undefined
+          // 后台 / 滚动 / 停手补算触发的「补一段高亮」请求
+          const req = tr.getMeta(key) as { from: number; to: number; force?: boolean } | undefined
           if (req) {
             const size = tr.doc.content.size
             const from = Math.max(0, Math.min(req.from, req.to, size))
@@ -139,9 +191,13 @@ export const codeHighlightPlugin = $prose(
             if (to <= from) return value
             const done = new Set(value.done)
             const decos: Decoration[] = []
+            // force：停手后补算「打字期间被跳过」的块。先摘掉这些块原有的旧装饰，
+            // 否则新旧两套 span 会叠在一起（颜色错乱、DOM 也翻倍）。
+            let set = value.set
+            if (req.force) set = set.remove(set.find(from, to))
             tr.doc.nodesBetween(from, to, (node, pos) => {
               if (node.type.name !== 'code_block') return
-              if (done.has(pos)) return false
+              if (!req.force && done.has(pos)) return false
               done.add(pos)
               if (node.content.size === 0) return false
               const parsed = highlightParser({
@@ -154,8 +210,16 @@ export const codeHighlightPlugin = $prose(
               return false
             })
             const scanPos = Math.max(value.scanPos, to)
-            if (!decos.length) return { doc: tr.doc, set: value.set, done, scanPos }
-            return { doc: tr.doc, set: value.set.add(tr.doc, decos), done, scanPos }
+            if (!decos.length) {
+              return { doc: tr.doc, set, done, scanPos, dirty: req.force ? null : value.dirty }
+            }
+            return {
+              doc: tr.doc,
+              set: set.add(tr.doc, decos),
+              done,
+              scanPos,
+              dirty: req.force ? null : value.dirty,
+            }
           }
           return value
         },
@@ -284,6 +348,28 @@ export const codeHighlightPlugin = $prose(
           lastTyping = performance.now()
         }
 
+        /**
+         * 停手后补算「打字期间被跳过」的那块高亮。
+         *
+         * 每次文档变化都重置定时器，所以只在真正停下来之后跑一次；
+         * 用 TYPING_QUIET_MS + 80ms，确保不会和用户的下一次按键抢执行。
+         */
+        let dirtyTimer = 0
+        const armDirtyFlush = () => {
+          if (dirtyTimer) clearTimeout(dirtyTimer)
+          dirtyTimer = window.setTimeout(() => {
+            dirtyTimer = 0
+            if (view.isDestroyed) return
+            const st = key.getState(view.state)
+            if (!st || !st.dirty) return
+            view.dispatch(
+              view.state.tr
+                .setMeta('addToHistory', false)
+                .setMeta(key, { from: st.dirty.from, to: st.dirty.to, force: true }),
+            )
+          }, TYPING_QUIET_MS + 80)
+        }
+
         scrollRoot.addEventListener('scroll', onScroll, { passive: true })
         window.addEventListener('keydown', onKey, { passive: true })
         window.addEventListener('beforeinput', onKey, { passive: true })
@@ -308,10 +394,12 @@ export const codeHighlightPlugin = $prose(
               bootAt = performance.now() + 700
             }
             schedule()
+            armDirtyFlush()
           },
           destroy: () => {
             cancelPending()
             if (scrollTimer) clearTimeout(scrollTimer)
+            if (dirtyTimer) clearTimeout(dirtyTimer)
             scrollRoot.removeEventListener('scroll', onScroll)
             window.removeEventListener('keydown', onKey)
             window.removeEventListener('beforeinput', onKey)

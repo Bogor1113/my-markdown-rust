@@ -18,7 +18,7 @@ import { $inputRule, $prose } from '@milkdown/kit/utils'
 import { editorViewCtx } from '@milkdown/kit/core'
 import { textblockTypeInputRule, wrappingInputRule } from '@milkdown/kit/prose/inputrules'
 import { markRule } from '@milkdown/kit/prose'
-import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
+import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import {
   headingSchema,
@@ -26,6 +26,8 @@ import {
   codeBlockSchema,
   linkSchema,
   imageSchema,
+  listItemSchema,
+  paragraphSchema,
   sanitizeLinkHref,
 } from '@milkdown/kit/preset/commonmark'
 import { footnoteReferenceSchema, strikethroughSchema } from '@milkdown/kit/preset/gfm'
@@ -169,10 +171,136 @@ export const mdAutoConvertPlugin = $prose((ctx: Ctx) =>
   })
 )
 
+/**
+ * 列表项里继续敲 `- ` / `1. ` → 生成**嵌套子列表**。
+ *
+ * 上游的 `wrappingInputRule(/^([-+*])\s$/, bullet_list)` 在这种场景下必然失败，
+ * 原因是 schema 约束：`list_item` 的 content 是 `paragraph block*`，**必须以
+ * paragraph 开头**，所以「把当前这个空段落包成 bullet_list」找不出合法包裹
+ * （findWrapping 返回 null）。规则静默失效，`- ` 于是被当成正文留在段落里：
+ *
+ *     渲染成  `• - 项二`        （圆点后面多一个减号）
+ *     存盘成  `- \- 项二`       （mdast 为了不被误认成列表，给它加反斜杠转义）
+ *
+ * 真机实测就是这么写坏文件的。这里换成「删掉空项，挂到前一项下面」：
+ *
+ *     bullet_list[ li("项一"), li() ]   ←  光标在 li2
+ *         ↓
+ *     bullet_list[ li("项一" + bullet_list[ li() ]) ]
+ *
+ * 位置计算：li2 起点是 liPos，`liPos - 1` 正好是 li1 内部的末尾位置；
+ * 先删 li2（在插入点之后，不影响 liPos），再往 li1 末尾插子列表。
+ *
+ * 为什么用 `handleTextInput` 而不是 `InputRule`：这条规则要在「上游规则确定
+ * 失效」的前提下接管，而 InputRule 的 handler 拿到的是**输入前**的 state，
+ * 试过一版在里面判断 schema 约束，规则根本没被执行（上游规则先匹配上了）。
+ * 换成 props.handleTextInput 后由插件顺序保证先于 InputRule 执行，行为可控。
+ */
+export const typoraNestedList = $prose((ctx: Ctx) =>
+  new Plugin({
+    props: {
+      handleTextInput(view, from, to, text) {
+        if (text !== ' ') return false
+        if (from !== to) return false
+        const { state } = view
+        const $from = state.selection.$from
+
+        // 本次空格还没落进文档，所以段落里应该正好是「列表标记」本身
+        const line = $from.parent.textContent
+        if ($from.parentOffset !== line.length) return false
+        if (!/^(?:[-+*]|\d+[.)])$/.test(line)) return false
+
+        const liType = listItemSchema.type(ctx)
+        const paraType = paragraphSchema.type(ctx)
+        let liDepth = -1
+        for (let d = $from.depth; d > 0; d--) {
+          if ($from.node(d).type === liType) {
+            liDepth = d
+            break
+          }
+        }
+        if (liDepth < 1) return false
+
+        const li = $from.node(liDepth)
+        // 只接管「干净的空列表项」：只有一个段落，且段落里就是那个列表标记。
+        // 注意：此刻 state 里前一个字符（`-`）已经落进文档了（PM 的
+        // handleTextInput 在 DOM 变化被观察到之后才回调），所以不能要求
+        // content.size === 0 —— 那会让规则永远失效。
+        if (li.childCount !== 1) return false
+        const only = li.firstChild
+        if (!only || only.type !== paraType || only.textContent !== line) return false
+
+        // 第一项没有「前一项」可挂，退回上游行为（保持文本，不做破坏性改动）
+        const index = $from.index(liDepth - 1)
+        if (index === 0) return false
+
+        const listType = $from.node(liDepth - 1).type
+        const listNode = $from.node(liDepth - 1)
+        const liPos = $from.before(liDepth)
+
+        // 前一项的 spread 要关掉，否则序列化出来是：
+        //     - 项一
+        //                        ← 空行（listItem.spread 默认 true，join 时插一个空行）
+        //       - 项二
+        // 多了空行会让整个列表变成「松散列表」（每项被包成 <p>），
+        // 渲染和别的工具打开都会变样。Milkdown 的 list_item 属性默认 spread=true，
+        // 这里只把我们动过的这一项改成 false，不动其它项。
+        const prevLiPos =
+          $from.before(liDepth - 1) +
+          1 +
+          Array.from({ length: index - 1 }, (_, i) => listNode.child(i).nodeSize).reduce((a, b) => a + b, 0)
+        const prevLi = listNode.child(index - 1)
+
+        const tr = state.tr.setNodeMarkup(prevLiPos, undefined, { ...prevLi.attrs, spread: false })
+        tr.delete(liPos, liPos + li.nodeSize)
+        const insertAt = liPos - 1
+        const nested = listType.create(null, [liType.create({ spread: false }, [paraType.create()])])
+        tr.insert(insertAt, nested)
+        // 光标进新项段落：bullet_list(+1) → list_item(+1) → paragraph(+1)
+        tr.setSelection(TextSelection.near(tr.doc.resolve(insertAt + 3)))
+        view.dispatch(tr.scrollIntoView())
+        return true
+      },
+    },
+  })
+)
+
+/**
+ * 引用块内空段落的行首空格直接吞掉。
+ *
+ * `>` 一敲就成引用块（Typora 行为，见上一条规则），如果用户接着敲空格
+ * （`> 引用文字` 的肌肉记忆），那个空格会作为**正文的第一个字符**进了引用块。
+ * 存盘时 mdast 为了保住行首空格，把它写成字符实体：
+ *
+ *     > &#x20;引用文字
+ *
+ * 别的 Markdown 工具打开看到的也是 `&#x20;`，属于明显的脏数据。
+ * 行首空格在 Markdown 里本来就会被吞（或被转义），所以这里直接不吃它。
+ */
+export const blockquoteSpaceGuard = $prose(
+  () =>
+    new Plugin({
+      props: {
+        handleTextInput(view, from, to, text) {
+          if (text !== ' ' || from !== to) return false
+          const $from = view.state.selection.$from
+          if ($from.parentOffset !== 0 || $from.parent.content.size !== 0) return false
+          // 只在 blockquote 内生效，普通段落/列表项的行首空格照常输入
+          for (let d = $from.depth - 1; d > 0; d--) {
+            if ($from.node(d).type.name === 'blockquote') return true
+          }
+          return false
+        },
+      },
+    })
+)
+
 export const typoraInputRules = [
   typoraHeadingInputRule,
   typoraBlockquoteInputRule,
   typoraCodeFenceInputRule,
   typoraStrikethroughInputRule,
+  typoraNestedList,
+  blockquoteSpaceGuard,
   mdAutoConvertPlugin,
 ].flat()

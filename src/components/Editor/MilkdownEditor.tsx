@@ -14,6 +14,7 @@ import type { Ctx } from '@milkdown/kit/ctx'
 import {
   commonmark,
   remarkHtmlTransformer,
+  remarkPreserveEmptyLinePlugin,
   syncListOrderPlugin,
   syncHeadingIdPlugin,
   wrapInHeadingInputRule,
@@ -45,6 +46,7 @@ import { copyButtonPlugin } from '../../plugins/copyButton'
 import { imagePlugin } from '../../plugins/image'
 import { htmlPlugin } from '../../plugins/html'
 import { underlinePlugin } from '../../plugins/underline'
+import { dropEmptyLineBreakPlugin } from '../../plugins/mdClean'
 import { htmlSvgEditPlugin } from '../../plugins/htmlSvgEdit'
 import { svgSourceEditorMilkdownPlugin } from '../../plugins/svgSourceEditor'
 import { autoPairPlugin } from '../../plugins/autoPair'
@@ -52,6 +54,8 @@ import { typoraKeymap } from '../../plugins/typoraKeys'
 import {
   typoraHeadingInputRule,
   typoraBlockquoteInputRule,
+  typoraNestedList,
+  blockquoteSpaceGuard,
   typoraCodeFenceInputRule,
   typoraStrikethroughInputRule,
   mdAutoConvertPlugin,
@@ -585,11 +589,24 @@ const MilkdownEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
           // 图片规则直接剔除：上游那条要求地址后必须带 "title"，手写 `![a](u)`
           // 永远匹配不上；改用 mdAutoConvertPlugin 统一处理。
           .filter((p) => p !== insertImageInputRule)
+          // 空段落不要序列化成 `<br />`：只保留解析侧「吃掉孤立 <br />」的容错，
+          // 序列化侧由 mdClean.ts 的插件接管。详见该文件顶部注释。
+          // 注意 $remark 的返回值是 [plugin, options] 两元组，经过 commonmark 的
+          // .flat() 后变成两个独立成员，所以必须按成员引用过滤（同 remarkHtmlTransformer）。
+          .filter(
+            (p) =>
+              !([remarkPreserveEmptyLinePlugin[0], remarkPreserveEmptyLinePlugin[1]] as unknown[]).includes(p),
+          )
           .filter(
             (p) => !([remarkHtmlTransformer[0], remarkHtmlTransformer[1]] as unknown[]).includes(p),
           ),
       )
       .use(typoraKeymap)  // Typora 键位：Ctrl+1..6 / Ctrl+= / Ctrl+- / Ctrl+Shift+K 等
+      // 列表项里敲 `- ` 生成嵌套子列表；引用块内空段落的行首空格吞掉。
+      // 这两条都不替换上游规则，是**新增**的（上游在这两种场景下静默失效），
+      // 所以必须单独注册，不能只靠上面 commonmark.map 的引用替换。
+      .use(typoraNestedList)
+      .use(blockquoteSpaceGuard)
       .use(overrideListCommands)  // override built-in: wrapInList instead of wrapIn
       // 手写语法的收尾转换（上游没有）：`[文字](地址)`→链接、`![图](地址)`→图片、
       // `[^1]`→脚注引用。放在 gfm 之后注册，等它的表格/任务列表规则先跑。
@@ -609,6 +626,7 @@ const MilkdownEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
       .use(imagePlugin)
       .use(htmlPlugin)
       .use(underlinePlugin)  // Ctrl+U：underline mark ↔ <u>…</u>
+      .use(dropEmptyLineBreakPlugin)  // 解析容错：吃掉老文件里孤立的 <br />
       .use(htmlSvgEditPlugin)
       .use(svgSourceEditorMilkdownPlugin)
       .use(autoPairPlugin)

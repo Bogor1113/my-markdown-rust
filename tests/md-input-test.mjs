@@ -138,6 +138,7 @@ const keyCases = [
   { name: 'Ctrl+U 两次 → 取消下划线', type: 'abc', keys: ['a+Ctrl', 'u+Ctrl', 'u+Ctrl'], expect: (r) => !r.blocks[0]?.marks.includes('underline') },
   { name: 'Ctrl+K → 插入链接弹窗', type: 'abc', keys: ['a+Ctrl', 'k+Ctrl'], expect: (r) => r.prompt === '插入链接' },
   { name: 'Ctrl+/ → 源码模式', type: 'abc', keys: ['/+Ctrl'], expect: (r) => r.sourceMode === true },
+  { name: 'Ctrl+N → 新建文件对话框', type: '', keys: ['n+Ctrl'], synth: true, expect: (r) => r.prompt === '新建文件' },
 ]
 
 const main = async () => {
@@ -295,6 +296,76 @@ const main = async () => {
       pass: parsedMarks === '中',
       detail: `解析结果=${JSON.stringify(parsedMarks)}`,
     })
+
+    // ============ 存盘（序列化）层 ============
+    // 渲染正确 ≠ 存盘正确。真机实测过一组反例：列表、引用、代码块、空段落在编辑区
+    // 看着都对，写进 .md 却是 `- \- 项二` / `> &#x20;引用文字` / ` a = 1const` / `<br />`。
+    // 上面所有用例断言的都是 ProseMirror 的块结构，漏掉的正是这一层，
+    // 所以这里直接比对 serializer 输出字符串。
+    const typeText = async (s, d = 14) => {
+      for (const ch of s) {
+        await p.insertText(ch)
+        await sleep(d)
+      }
+    }
+    const mdOf = async () =>
+      String(
+        await p.eval(`
+          const view = await window.__H.view();
+          const ed = window.__H.store.getState().editor;
+          if (!view || !ed) return '';
+          return ed.action((ctx) => ctx.get(window.__H.m.serializerCtx)(view.state.doc));
+        `),
+      )
+    const mdCase = async (name, run, expect) => {
+      await p.eval(RESET)
+      await sleep(60)
+      await run()
+      await sleep(280)
+      const md = await mdOf()
+      const pass = expect(md)
+      console.log(`${pass ? 'PASS' : 'FAIL'} [存盘] ${name}${pass ? '' : ' :: ' + JSON.stringify(md)}`)
+      results.push({ kind: '存盘', name, pass, detail: JSON.stringify(md) })
+    }
+
+    await mdCase(
+      '空段落不写成 <br />',
+      async () => {
+        await typeText('A')
+        await runKeys('Enter')
+        await runKeys('Enter')
+        await typeText('B')
+      },
+      (md) => !md.includes('<br'),
+    )
+
+    await mdCase(
+      '列表项内敲 "- " → 嵌套子列表，不写成 "\\-"',
+      async () => {
+        await typeText('- 项一')
+        await runKeys('Enter')
+        await typeText('- 项二')
+      },
+      (md) => /^-\s*项一\n\s+- 项二/.test(md) && !md.includes('\\-'),
+    )
+
+    await mdCase(
+      '引用不写成 "> &#x20;文字"',
+      async () => {
+        await typeText('> 引用文字')
+      },
+      (md) => /^> 引用文字/.test(md) && !md.includes('&#x20;'),
+    )
+
+    await mdCase(
+      '代码块里字符顺序正确（const a = 1）',
+      async () => {
+        await typeText('```js', 40)
+        await runKeys('Enter')
+        await typeText('const a = 1', 35)
+      },
+      (md) => md.includes('const a = 1') && !/a = 1const/.test(md),
+    )
 
     const fail = results.filter((r) => !r.pass)
     for (const r of results) {

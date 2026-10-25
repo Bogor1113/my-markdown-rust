@@ -81,3 +81,6 @@ perf-*.json
 prof-*.json
 ui-test-result.json
 ui-*.png
+# 真机黑盒测试工作区（Python + Win32 截图/键鼠注入脚本 + 截图 + trace.csv）。
+# 里面是临时工作区与几 MB 截图，路径和窗口坐标都绑定本机，不入库。
+.e2e/
