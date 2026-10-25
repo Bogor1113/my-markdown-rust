@@ -10,7 +10,12 @@ import {
   serializerCtx,
 } from '@milkdown/kit/core'
 import type { Ctx } from '@milkdown/kit/ctx'
-import { commonmark, remarkHtmlTransformer, syncListOrderPlugin } from '@milkdown/kit/preset/commonmark'
+import {
+  commonmark,
+  remarkHtmlTransformer,
+  syncListOrderPlugin,
+  syncHeadingIdPlugin,
+} from '@milkdown/kit/preset/commonmark'
 import { gfm } from '@milkdown/kit/preset/gfm'
 import { history } from '@milkdown/kit/plugin/history'
 import { TextSelection, EditorState, Plugin, PluginKey } from '@milkdown/kit/prose/state'
@@ -19,6 +24,7 @@ import { $prose } from '@milkdown/kit/utils'
 import { search } from 'prosemirror-search'
 import { codeHighlightPlugin } from '../../plugins/codeHighlight'
 import { listOrderPlugin } from '../../plugins/listOrder'
+import { headingIdPlugin } from '../../plugins/headingId'
 import { upload, uploadConfig } from '@milkdown/plugin-upload'
 import type { Node, Schema } from '@milkdown/kit/prose/model'
 import type { OutlineItem } from '../../types'
@@ -457,11 +463,14 @@ const MilkdownEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
       // 以真实 DOM 渲染（默认实现只把源码当纯文本展示，且会把块级 HTML 包进
       // paragraph 导致无法区分块级/行内）。$Remark 是 [optionsCtx, plugin] 元组，
       // commonmark 数组里存放的是它扁平化后的两个成员，需按成员引用过滤。
-      // 同时把自带的 syncListOrderPlugin 换成增量版：它每个事务都全量扫描文档，
-      // 大文档里约 14ms/键（见 plugins/listOrder.ts）。
+      // 同时替换两个 commonmark 自带插件：
+      // 1) syncListOrderPlugin → 增量版（每个事务全量扫描文档，大文档约 14ms/键，见 plugins/listOrder.ts）。
+      // 2) syncHeadingIdPlugin → 防抖版（每次文档变化都按文本重算 slug 并 setNodeMarkup，
+      //    打标题时每键重建 <h4> 约 25-34ms，见 plugins/headingId.ts）。
       .use(
         commonmark
           .map((p) => (p === syncListOrderPlugin ? listOrderPlugin : p))
+          .map((p) => (p === syncHeadingIdPlugin ? headingIdPlugin : p))
           .filter(
             (p) => !([remarkHtmlTransformer[0], remarkHtmlTransformer[1]] as unknown[]).includes(p),
           ),

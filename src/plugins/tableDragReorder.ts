@@ -57,6 +57,50 @@ function moveCol(doc: Node, schema: Node['type']['schema'], tablePos: number, fr
   return { from: tablePos, to: tablePos + tableNode.nodeSize, content: newTableContent }
 }
 
+/**
+ * 创建行拖拽手柄的 DOM（模块级稳定函数）。
+ *
+ * prosemirror-view 的 placeWidget 复用条件之一是 `!next.widget.type.toDOM.parentNode`：
+ * toDOM 是函数时 `.parentNode` 为 undefined → 取反为 true → 命中复用（配合 key 的 eq
+ * 命中，普通输入不再重建手柄）。PM 只在首次渲染时调用一次本函数创建 DOM，之后靠 eq
+ * 复用，不再调用。若直接把 createElement 产生的节点当 toDOM，其 parentNode 指向已挂载
+ * 的表格 → 取反为 false → 每键销毁重建全部手柄。
+ */
+function createRowHandle(
+  tablePos: number,
+  rowIdx: number,
+  setDragState: (s: DragState | null) => void,
+): HTMLElement {
+  const el = document.createElement('div')
+  el.className = 'table-row-drag-handle'
+  el.dataset.row = String(rowIdx)
+  el.draggable = true
+  el.addEventListener('mousedown', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragState({ type: 'row', fromIndex: rowIdx, toIndex: -1, tablePos, active: false })
+  })
+  return el
+}
+
+/** 创建列拖拽手柄的 DOM（模块级稳定函数，同 createRowHandle 的复用原理）。 */
+function createColHandle(
+  tablePos: number,
+  colIdx: number,
+  setDragState: (s: DragState | null) => void,
+): HTMLElement {
+  const el = document.createElement('div')
+  el.className = 'table-col-drag-handle'
+  el.dataset.col = String(colIdx)
+  el.draggable = true
+  el.addEventListener('mousedown', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragState({ type: 'col', fromIndex: colIdx, toIndex: -1, tablePos, active: false })
+  })
+  return el
+}
+
 function createDecorations(
   doc: Node,
   from: number,
@@ -80,18 +124,14 @@ function createDecorations(
       }
       const handlePos = pos + 1 + offset
 
-      const el = document.createElement('div')
-      el.className = 'table-row-drag-handle'
-      el.dataset.row = String(rowIdx)
-      el.draggable = true
-      el.addEventListener('mousedown', (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setDragState({ type: 'row', fromIndex: rowIdx, toIndex: -1, tablePos, active: false })
-      })
-
+      // toDOM 必须是**函数**而非直接传 DOM 元素。prosemirror-view 的 placeWidget
+      // 复用条件之一是 `!next.widget.type.toDOM.parentNode`：toDOM 是函数时
+      // `.parentNode` 为 undefined → 取反为 true → 命中复用（配合 key 的 eq 命中，
+      // 普通输入不再重建手柄）。若直接传 createElement 产生的节点，其 parentNode 指向
+      // 已挂载的表格 → 取反为 false → 每键销毁重建全部手柄（56 格表 15 柄/键=180 DIV、
+      // ~260ms）。与 copyButton/languageBadge 同一类 bug、同一修法。
       decorations.push(
-        Decoration.widget(handlePos, el, {
+        Decoration.widget(handlePos, () => createRowHandle(tablePos, rowIdx, setDragState), {
           side: -1,
           key: `row-handle-${tablePos}-${rowIdx}`,
         }),
@@ -110,18 +150,8 @@ function createDecorations(
         // 才会以该 cell（position:relative）为定位祖先：top:-14px 出现在本列正上方。
         // 旧实现少算了进入 cell 的 +1，widget 落进前一个 cell 的末尾，
         // 表现为「手柄显示在第 i 列上方，拖动的却是第 i-1 列」的错位。
-        const el = document.createElement('div')
-        el.className = 'table-col-drag-handle'
-        el.dataset.col = String(colIdx)
-        el.draggable = true
-        el.addEventListener('mousedown', (e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          setDragState({ type: 'col', fromIndex: colIdx, toIndex: -1, tablePos, active: false })
-        })
-
         decorations.push(
-          Decoration.widget(pos + 3 + offset, el, {
+          Decoration.widget(pos + 3 + offset, () => createColHandle(tablePos, colIdx, setDragState), {
             side: -1,
             key: `col-handle-${tablePos}-${colIdx}`,
           }),
