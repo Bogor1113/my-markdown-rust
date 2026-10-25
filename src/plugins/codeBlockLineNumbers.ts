@@ -191,35 +191,69 @@ export const codeBlockLineNumbers = $prose(() =>
     view: (view) => {
       let raf = 0
       let scrollRaf = 0
-      // view.scrollDOM 是 ProseMirror 的滚动元素（运行时存在，此版本类型未导出），
-      // Milkdown 下它是包裹 .ProseMirror 的滚动容器。取不到时回退到 view.dom。
-      const scrollRoot: HTMLElement =
-        (view as unknown as { scrollDOM?: HTMLElement }).scrollDOM ?? view.dom
+      // 真正的滚动容器是 view.dom 的**可滚动祖先**（本应用里是包住编辑器的
+      // <div class="milkdown overflow-auto">）。不能用 view.scrollDOM：ProseMirror
+      // 的 scrollDOM 就是挂载点 .ProseMirror 本身（高度 = 全文高度），拿它算
+      // 视口会把「整篇文档」当成可见区域，屏幕外的块全被扫描 → 大文档卡死。
+      const findScrollParent = (el: HTMLElement): HTMLElement => {
+        for (let p = el.parentElement; p; p = p.parentElement) {
+          const oy = getComputedStyle(p).overflowY
+          if (oy === 'auto' || oy === 'scroll' || oy === 'overlay') return p
+        }
+        return (document.scrollingElement as HTMLElement | null) ?? document.documentElement
+      }
+      const scrollRoot: HTMLElement = findScrollParent(view.dom)
+      /** 同步单个代码块的行号槽（只对视口内的块调用） */
+      const syncPre = (pre: HTMLElement) => {
+        const gutter = pre.querySelector<HTMLElement>('.code-gutter')
+        const code = pre.querySelector<HTMLElement>('code')
+        if (!gutter || !code) return
+        const style = getComputedStyle(pre)
+        const lh = parseFloat(style.lineHeight)
+        if (!lh || !isFinite(lh)) return
+        alignGutterToPre(gutter, style, lh)
+        syncGutterRows(gutter, code, lh)
+      }
+      /** 同步视口内的代码块行号（文档变化 / 滚动 / 宽度变化后调用） */
       const sync = () => {
         raf = 0
         if (view.isDestroyed) return
-        // 只同步视口内的代码块：大文档可能含数百个 code 块，对全部做
-        // getBoundingClientRect + getClientRects 会强制整页重排（layout
-        // thrash），是滚动/编辑卡死的主因之一。视口外的块由
-        // content-visibility 跳过渲染，滚入视口后由 scroll 监听补同步。
-        const rootRect = scrollRoot.getBoundingClientRect()
-        const pres = view.dom.querySelectorAll('.ProseMirror pre')
-        for (const pre of pres) {
-          if (!(pre instanceof HTMLElement)) continue
-          const gutter = pre.querySelector<HTMLElement>('.code-gutter')
-          const code = pre.querySelector<HTMLElement>('code')
-          if (!gutter || !code) continue
-          // 跳过明显在视口外的代码块（含 content-visibility 未渲染的占位块）
-          const preRect = pre.getBoundingClientRect()
-          const inView =
-            preRect.bottom >= rootRect.top - 200 && preRect.top <= rootRect.bottom + 200
-          if (!inView) continue
-          const style = getComputedStyle(pre)
-          const lh = parseFloat(style.lineHeight)
-          if (!lh || !isFinite(lh)) continue
-          alignGutterToPre(gutter, style, lh)
-          syncGutterRows(gutter, code, lh)
+        // 未虚拟化（< 3000 顶层块）：所有块都已真实渲染，全量同步最稳（约 1ms），
+        // 滚动时行号始终就绪，不会出现「滚过去先空一帧」。
+        if (!view.dom.closest('.milkdown-virtualized')) {
+          for (const pre of view.dom.querySelectorAll('.ProseMirror pre')) {
+            if (pre instanceof HTMLElement) syncPre(pre)
+          }
+          return
         }
+        const rootRect = scrollRoot.getBoundingClientRect()
+        if (rootRect.height <= 0) return
+        // 虚拟化文档：只处理视口内的代码块，且**不对屏幕外的 <pre> 读几何**。
+        // content-visibility 跳过的块一旦被 getBoundingClientRect 读到，浏览器
+        // 就会把该块真实布局出来（等于废掉虚拟化）——600KB / 780 个代码块实测
+        // 一次约 1s，表现为打开/滚动大文件后整秒卡死。
+        // 这里用 posAtCoords 取视口顶部/底部的文档位置（内部走
+        // caretFromPoint/elementFromPoint，不遍历文本，约 0.5ms/次），
+        // 只处理这两个位置之间的代码块。
+        const x = rootRect.left + 24
+        const topHit = view.posAtCoords({ left: x, top: rootRect.top + 12 })
+        const bottomHit = view.posAtCoords({ left: x, top: rootRect.bottom - 12 })
+        // 视口顶/底落在内边距里时 posAtCoords 返回 null：只有「滚到最顶」才可
+        // 安全认为区间从文档开头算起，「滚到最底」同理；其余情况跳过本帧
+        //（下一次滚动/编辑再算），不做全量扫描。
+        const from = topHit ? topHit.pos : scrollRoot.scrollTop <= 4 ? 0 : -1
+        let to = bottomHit ? bottomHit.pos : -1
+        if (to < 0 && scrollRoot.scrollTop + scrollRoot.clientHeight >= scrollRoot.scrollHeight - 4) {
+          to = view.state.doc.content.size
+        }
+        if (from < 0 || to < 0) return
+        view.state.doc.nodesBetween(Math.min(from, to), Math.max(from, to), (node, pos) => {
+          if (node.type.name !== 'code_block' || node.content.size === 0) return
+          const dom = view.nodeDOM(pos)
+          if (!(dom instanceof HTMLElement)) return
+          const pre = dom.tagName === 'PRE' ? dom : dom.querySelector('pre')
+          if (pre instanceof HTMLElement) syncPre(pre)
+        })
       }
       const schedule = () => {
         if (raf) return
