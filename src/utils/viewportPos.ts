@@ -9,6 +9,7 @@
 /// 滚动位置没变时直接复用，避免重复的命中测试。
 
 import type { EditorView } from '@milkdown/kit/prose/view'
+import type { Node as PMNode } from '@milkdown/kit/prose/model'
 
 interface CacheEntry {
   /** 上次计算时间 */
@@ -17,6 +18,9 @@ interface CacheEntry {
   scrollTop: number
   /** 上次计算的视口高度（容器尺寸变化时缓存作废） */
   height: number
+  /** 上次计算时的文档；切标签走 updateState，view 对象不变但 doc 会变，
+   *  两篇文档 scrollTop/height 恰好相同时必须靠它避免复用上一篇的位置 */
+  doc: PMNode
   pos: number | null
 }
 
@@ -37,8 +41,9 @@ export function viewportTopPos(view: EditorView, root: HTMLElement): number | nu
   const scrollTop = root.scrollTop
   const height = root.clientHeight
   const now = performance.now()
+  const doc = view.state.doc
   const hit = cache.get(view)
-  if (hit && hit.scrollTop === scrollTop && hit.height === height && now - hit.t < MAX_AGE_MS) {
+  if (hit && hit.doc === doc && hit.scrollTop === scrollTop && hit.height === height && now - hit.t < MAX_AGE_MS) {
     return hit.pos
   }
   const rect = root.getBoundingClientRect()
@@ -50,7 +55,7 @@ export function viewportTopPos(view: EditorView, root: HTMLElement): number | nu
   } catch {
     pos = null
   }
-  cache.set(view, { t: now, scrollTop, height, pos })
+  cache.set(view, { t: now, scrollTop, height, doc, pos })
   return pos
 }
 

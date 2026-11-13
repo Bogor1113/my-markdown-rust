@@ -226,7 +226,12 @@ fn delete_path_sync(path: &str) -> Result<DeleteResult, String> {
             Err(RecycleError::Aborted) => {
                 return Err("删除已取消".into());
             }
-            // 回收站不可用（网络驱动器/文件被占用等）：退化为永久删除，
+            // 明确不支持回收站的路径（UNC 网络盘等）：降级成永久删除同样不可逆，
+            // 直接拒绝，避免「点了取消/删不动却把文件彻底抹掉」。
+            Err(RecycleError::NoRecycleBin(reason)) => {
+                return Err(format!("无法移入回收站：{reason}"));
+            }
+            // 回收站不可用（文件被占用等）：退化为永久删除，
             // 通过 recycled:false 让前端明确提示用户「已永久删除」。
             // 原因记日志，便于事后诊断为何发生了不可逆删除。
             Err(RecycleError::Unavailable(reason)) => {
@@ -248,7 +253,9 @@ fn delete_path_sync(path: &str) -> Result<DeleteResult, String> {
 enum RecycleError {
     /// 用户在系统对话框中取消了操作
     Aborted,
-    /// 回收站不可用（网络驱动器/策略限制等）
+    /// 该路径确定没有回收站（UNC 网络路径等），不应降级为永久删除
+    NoRecycleBin(String),
+    /// 回收站不可用（文件被占用/策略限制等），可降级为永久删除
     Unavailable(String),
 }
 
@@ -256,6 +263,13 @@ enum RecycleError {
 #[cfg(target_os = "windows")]
 fn recycle_delete_windows(path: &str) -> Result<(), RecycleError> {
     use windows_sys::Win32::UI::Shell::{SHFileOperationW, SHFILEOPSTRUCTW, FO_DELETE};
+
+    // UNC 网络路径（\\server\share\...）以及 \\?\ 设备路径没有回收站。
+    // 这类路径上 SHFileOperationW 必然失败，一旦走 Unavailable 降级分支就会
+    // 变成网络盘上的不可逆永久删除；直接拒绝更安全。
+    if path.starts_with("\\\\") {
+        return Err(RecycleError::NoRecycleBin("UNC / 设备路径不支持回收站".into()));
+    }
 
     // FOF_ALLOWUNDO  0x0040 → 允许撤销（即进回收站）
     // FOF_SILENT     0x0004 → 不显示进度对话框
@@ -279,13 +293,18 @@ fn recycle_delete_windows(path: &str) -> Result<(), RecycleError> {
         op.fFlags = FOF_ALLOWUNDO | FOF_SILENT | FOF_NOCONFIRMATION | FOF_NOERRORUI;
 
         let ret = SHFileOperationW(&mut op);
+
+        // 判断顺序至关重要：SHFileOperationW 在用户取消（UAC 被拒、占用弹窗被
+        // 取消等）时**可以同时返回非零 ret 并置 fAnyOperationsAborted**，取消码
+        // 常见为 DE_OPCANCELLED / ERROR_CANCELLED = 0x4C7。若先判 ret，这些情况
+        // 会被误判为「回收站不可用」并降级成不可逆的永久删除 —— 与下面调用方
+        // 注释里「对 Aborted 不得降级」的保护完全相悖。因此取消判定必须最优先。
+        const DE_OPCANCELLED: i64 = 0x4C7;
+        if op.fAnyOperationsAborted != 0 || (ret as i64) == DE_OPCANCELLED {
+            return Err(RecycleError::Aborted);
+        }
         if ret != 0 {
             return Err(RecycleError::Unavailable(format!("SHFileOperationW failed: {}", ret)));
-        }
-        // 用户取消（如 UAC 弹窗被拒）：与「回收站不可用」严格区分，
-        // 调用方对 Aborted 不得降级为永久删除
-        if op.fAnyOperationsAborted != 0 {
-            return Err(RecycleError::Aborted);
         }
     }
     Ok(())

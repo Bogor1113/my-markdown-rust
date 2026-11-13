@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useSettingsStore } from '../../stores/settings'
 
 interface Props {
   /** 标签 id：变化（切换标签）时重挂载并加载对应内容 */
@@ -25,6 +26,8 @@ interface Props {
  * 内容被外部替换（切换标签 / 磁盘重载）时通过 key 重挂载刷新。
  */
 const SourceEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
+  // 与所见即所得模式一致，遵循设置里的拼写检查开关（旧实现硬编码 false）
+  const spellcheck = useSettingsStore((s) => s.spellcheck)
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
   const areaRef = useRef<HTMLTextAreaElement>(null)
@@ -39,9 +42,10 @@ const SourceEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
     }
   }, [docKey, reloadTick])
 
-  // Tab 键插入两个空格（源码编辑下直接落缩进，不跳出焦点）
+  // Tab 键插入两个空格；Shift+Tab 必须放行，否则键盘用户永远无法用 Tab
+  // 反向离开 textarea（WCAG 2.1.2 焦点陷阱）
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key !== 'Tab') return
+    if (e.key !== 'Tab' || e.shiftKey) return
     e.preventDefault()
     const el = e.currentTarget
     const { selectionStart: s, selectionEnd: t, value } = el
@@ -60,7 +64,7 @@ const SourceEditor = ({ docKey, content, reloadTick, onChange }: Props) => {
       defaultValue={content}
       onChange={(e) => onChangeRef.current(e.target.value)}
       onKeyDown={handleKeyDown}
-      spellCheck={false}
+      spellCheck={spellcheck}
       autoCapitalize="off"
       autoCorrect="off"
       aria-label="Markdown 源码编辑"

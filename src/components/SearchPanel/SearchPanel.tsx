@@ -31,7 +31,9 @@ export default function SearchPanel() {
 
   const inputRef = useRef<HTMLInputElement>(null)
   const replaceInputRef = useRef<HTMLInputElement>(null)
-  const [debounceTimer, setDebounceTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
+  // 用 ref 而非 state：timer 不参与渲染，且关闭面板（组件常驻、只是 return null）
+  // 时仍能被下面的 effect 精确取消。
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showReplace, setShowReplace] = useState(false)
   const [replaceQuery, setReplaceQuery] = useState('')
   const [replacing, setReplacing] = useState(false)
@@ -52,26 +54,35 @@ export default function SearchPanel() {
     }
   }, [searchOpen])
 
-  // 卸载时清理 debounce timer
+  // 关闭面板时取消尚未执行的 debounce：组件由 AppLayout 常驻渲染，关闭只是
+  // return null，不会触发卸载 cleanup。输入后 300ms 内按 Esc 关闭，旧实现仍会
+  // 发起全量跨文件搜索并把结果写回已经清空的 searchQuery / searchResults。
   useEffect(() => {
-    return () => {
-      if (debounceTimer) clearTimeout(debounceTimer)
+    if (searchOpen) return
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current)
+      debounceRef.current = null
     }
-  }, [debounceTimer])
+  }, [searchOpen])
+
+  // 真正卸载时也要撤销
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+  }, [])
 
   const handleInputChange = useCallback(
     (value: string) => {
       setSearchQuery(value)
-      if (debounceTimer) clearTimeout(debounceTimer)
-      const timer = setTimeout(() => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => {
+        debounceRef.current = null
         if (value.trim()) runSearch(value)
         else {
           useAppStore.setState({ searchResults: [] })
         }
       }, 300)
-      setDebounceTimer(timer)
     },
-    [setSearchQuery, runSearch, debounceTimer],
+    [setSearchQuery, runSearch],
   )
 
   const handleResultClick = useCallback(

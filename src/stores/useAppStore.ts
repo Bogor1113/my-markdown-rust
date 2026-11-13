@@ -81,6 +81,12 @@ function readSession(): SessionData | null {
       expandedDirs: Array.isArray(data.expandedDirs)
         ? data.expandedDirs.filter((p): p is string => typeof p === 'string')
         : [],
+      // writeSession 会写 sourceModePaths，旧版 readSession 漏读该字段，
+      // 导致 restoreSession 里 `data.sourceModePaths ?? []` 恒为空数组：
+      // 手动切源码模式的大文件重启后被 WYSIWYG 全量 parse，注释承诺的保护失效。
+      sourceModePaths: Array.isArray(data.sourceModePaths)
+        ? data.sourceModePaths.filter((p): p is string => typeof p === 'string')
+        : [],
     }
   } catch {
     return null
@@ -92,7 +98,11 @@ function readRecentFiles(): string[] {
     const raw = localStorage.getItem(RECENT_FILES_KEY)
     if (!raw) return []
     const arr = JSON.parse(raw) as string[]
-    return Array.isArray(arr) ? arr.slice(0, MAX_RECENT_FILES) : []
+    // 只判 Array.isArray 不够：损坏数据里的 null/number 会在 pathKey 的
+    // toLowerCase() / fuzzySearch 的 p.split 抛错，直接打断 openFile。
+    return Array.isArray(arr)
+      ? arr.filter((p): p is string => typeof p === 'string').slice(0, MAX_RECENT_FILES)
+      : []
   } catch {
     return []
   }
@@ -111,7 +121,9 @@ function readRecentLangs(): string[] {
     const raw = localStorage.getItem(RECENT_LANGS_KEY)
     if (!raw) return []
     const arr = JSON.parse(raw) as string[]
-    return Array.isArray(arr) ? arr.slice(0, MAX_RECENT_LANGS) : []
+    return Array.isArray(arr)
+      ? arr.filter((p): p is string => typeof p === 'string').slice(0, MAX_RECENT_LANGS)
+      : []
   } catch {
     return []
   }
@@ -139,7 +151,9 @@ function persistSession() {
   writeSession({
     rootPath: s.rootPath,
     openPaths: [...new Set(s.tabs.map((t) => t.path))],
-    activePath: s.activeTabId,
+    // activeTabId 是稳定 id，重命名后可能与 tab.path 不同；会话必须存真实路径，
+    // 否则 restoreSession 用 activePath 匹配 openPaths 时永远匹配不上，活动标签退化。
+    activePath: s.tabs.find((t) => t.id === s.activeTabId)?.path ?? null,
     expandedDirs: [...s.expandedDirs],
     sourceModePaths: s.tabs.filter((t) => t.sourceMode).map((t) => t.path),
   })
@@ -184,8 +198,13 @@ const AUTOSAVE_DEBOUNCE_MS = 30_000
  */
 const AUTOSAVE_MAX_DELAY_MS = 60_000
 
-/** 退出前落盘的最长等待：写盘卡死（如网络盘无响应）时仍要保证能退得出去 */
-const FLUSH_TIMEOUT_MS = 5000
+/**
+ * 退出前落盘的最长等待：写盘卡死（如网络盘无响应）时仍要保证能退得出去。
+ * 必须**小于** Rust 侧 QUIT_FLUSH_GRACE_MS(30s)：否则前端还在等，进程已被
+ * 后端兜底定时器结束，未写完的内容随窗口销毁丢失。到点只表示「不再等待」，
+ * 绝不算保存成功，由 flushAllDirty 返回 timedOut 交给调用方弹二次确认。
+ */
+const FLUSH_TIMEOUT_MS = 15_000
 
 let _autosaveTimer: ReturnType<typeof setTimeout> | null = null
 /** 本轮「变脏周期」的强制落盘截止时间（毫秒时间戳）；无待保存任务时为 0 */
@@ -394,7 +413,8 @@ interface AppState {
   saveTab: (tabId: string) => Promise<void>
 
   /** 退出前落盘全部未保存标签（托盘「退出程序」确认后调用） */
-  flushAllDirty: () => Promise<void>
+  /** 退出前落盘；返回失败清单与是否超时，供调用方决定是否仍要退出 */
+  flushAllDirty: () => Promise<{ failed: string[]; timedOut: boolean }>
   /** 文件被重命名后，同步已打开标签的路径与名称 */
   renameTabPath: (oldPath: string, newPath: string) => void
   /** 启动时恢复上次会话：目录 + 已打开文件 + 活动标签 */
@@ -857,13 +877,16 @@ export const useAppStore = create<AppState>()(
         if (pk.startsWith(dirKey)) return newPath + p.slice(oldPath.length)
         return p
       }
+      // id 是标签的稳定内部标识（openFile 里 id = path）。重命名只更新 path，
+      // 不动 id / activeTabId：否则 activeTabId 变成新路径而没有任何 tab.id 等于它，
+      // 编辑区会空白、saveTab 里 find 不到标签静默不写盘，所有以 id 为键的编辑器
+      // 缓存（cachesRef / snapshotRef / onChangeByKeyRef / _saveInflight）也不必迁移。
       return {
         tabs: s.tabs.map((t) => {
           const path = remap(t.path)
           if (path === t.path) return t
           return { ...t, path, name: path.split('\\').pop()?.split('/').pop() || path }
         }),
-        activeTabId: s.activeTabId ? remap(s.activeTabId) : s.activeTabId,
       }
     })
     persistSession()
@@ -990,22 +1013,37 @@ export const useAppStore = create<AppState>()(
    */
   flushAllDirty: async () => {
     const { tabs, saveTab, showToast } = get()
-    const tasks = tabs.filter((t) => t.isDirty).map((t) =>
-      saveTab(t.id).catch((e) => {
+    const dirty = tabs.filter((t) => t.isDirty)
+    const failed: string[] = []
+    if (dirty.length === 0) return { failed, timedOut: false }
+
+    // 失败不能再被静默吞掉：收集名字，交给调用方弹二次确认决定「仍退出 / 返回编辑」。
+    const tasks = dirty.map(async (t) => {
+      try {
+        await saveTab(t.id)
+      } catch (e) {
+        failed.push(t.name)
         showToast(`保存失败：${t.name}`)
         console.error('[flushAllDirty] save failed:', t.path, e)
-      }),
-    )
-    if (tasks.length === 0) return
+      }
+    })
+
     let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, FLUSH_TIMEOUT_MS)
+    let timedOut = false
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), FLUSH_TIMEOUT_MS)
     })
     try {
-      await Promise.race([Promise.all(tasks), timeout])
+      // 超时分支 resolve 成「成功」是旧实现的致命问题：写盘卡住时用户以为已保存，
+      // 实际 quit_now 立刻销毁窗口。这里只标记超时，不再把结果伪装成成功。
+      timedOut =
+        (await Promise.race([Promise.all(tasks).then(() => 'done' as const), timeout])) ===
+        'timeout'
     } finally {
       clearTimeout(timer)
     }
+    // 返回快照：超时后仍可能有迟到完成的 task 往 failed 里 push
+    return { failed: [...failed], timedOut }
   },
 
   addRecentFile: (path) => {

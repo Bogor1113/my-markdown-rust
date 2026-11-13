@@ -23,6 +23,8 @@ const typewriterKey = new PluginKey('MDITOR_TYPEWRITER')
 
 export const typewriterPlugin = $prose(() => {
   let raf = 0
+  /** 居中滚动的 rAF：与 update 的 rAF 分开记录，destroy 时必须一并取消 */
+  let scrollRaf = 0
   let unsubFocus: (() => void) | null = null
   let unsubTypewriter: (() => void) | null = null
   let viewRef: EditorView | null = null
@@ -70,8 +72,11 @@ export const typewriterPlugin = $prose(() => {
     // （用户开着专注模式翻看其它段落时，被强行拉回光标处会非常难受）。
     if (!useAppStore.getState().typewriterMode) return
     const target = el
-    requestAnimationFrame(() => {
-      if (!view || view.isDestroyed) return
+    cancelAnimationFrame(scrollRaf)
+    scrollRaf = requestAnimationFrame(() => {
+      // 切标签会走 view.updateState（view 对象不变），残留的居中 rAF 会用旧文档
+      // 几何覆盖 applyLoaded 恢复的 scrollTop。
+      if (!view || view.isDestroyed || !container.isConnected) return
       const cRect = container.getBoundingClientRect()
       const eRect = target.getBoundingClientRect()
       const delta = eRect.top + eRect.height / 2 - (cRect.top + cRect.height / 2)
@@ -117,7 +122,8 @@ export const typewriterPlugin = $prose(() => {
         const s = useAppStore.getState()
         document.documentElement.classList.toggle('focus-mode', s.focusMode)
         document.documentElement.classList.toggle('typewriter-mode', s.typewriterMode)
-        requestAnimationFrame(() => apply())
+        cancelAnimationFrame(raf)
+        raf = requestAnimationFrame(() => apply())
       }
 
       return {
@@ -130,6 +136,7 @@ export const typewriterPlugin = $prose(() => {
         },
         destroy: () => {
           cancelAnimationFrame(raf)
+          cancelAnimationFrame(scrollRaf)
           unsubFocus?.()
           unsubTypewriter?.()
           unsubFocus = null

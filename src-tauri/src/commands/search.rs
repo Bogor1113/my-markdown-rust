@@ -11,6 +11,7 @@
 //!    中途任一文件失败就把已写入的文件恢复成原内容，
 //!    避免目录停留在「部分已改、部分未改」的半毁状态。
 
+use super::ci_match::{line_match_utf16, replace_ci};
 use serde::Serialize;
 use std::collections::HashSet;
 
@@ -133,43 +134,8 @@ pub async fn replace_files(
         .map_err(|e| format!("Replace task failed: {e}"))?
 }
 
-/// 在一行内做大小写不敏感搜索，返回 (起始, 结束) 的 **UTF-16 code unit** 偏移。
-///
-/// 字节偏移只有在小写化不改变字节长度时才能安全使用：`to_lowercase()` 可能把
-/// 一个字符展开成多个（如土耳其语 'İ' → "i̇"），此时 `line_lower` 的偏移
-/// 与 `line` 错位，直接切片会 panic（非字符边界）或给出错误位置。
-/// 快路径覆盖 ASCII / 中日韩等绝大多数内容；慢路径逐 char 对齐，保证正确性。
-fn line_match_utf16(line: &str, query_lower: &str) -> Vec<(usize, usize)> {
-    let line_lower = line.to_lowercase();
-    if line_lower.len() == line.len() {
-        return line_lower
-            .match_indices(query_lower)
-            .map(|(s, m)| {
-                let start = line[..s].encode_utf16().count();
-                let end = start + line[s..s + m.len()].encode_utf16().count();
-                (start, end)
-            })
-            .collect();
-    }
-
-    // 慢路径：'İ' 等会变长的小写化。按 char 收集匹配，偏移用 len_utf16 累加。
-    let chars: Vec<char> = line.chars().collect();
-    let qlen = query_lower.chars().count();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i + qlen <= chars.len() {
-        let seg: String = chars[i..i + qlen].iter().collect();
-        if seg.to_lowercase() == query_lower {
-            let start16: usize = chars[..i].iter().map(|c| c.len_utf16()).sum();
-            let end16: usize = chars[i..i + qlen].iter().map(|c| c.len_utf16()).sum();
-            out.push((start16, start16 + end16));
-            i += qlen;
-        } else {
-            i += 1;
-        }
-    }
-    out
-}
+// 大小写不敏感匹配统一放在 ci_match 模块：按 char 索引 + UTF-16 前缀和定位，
+// 不使用「小写串的字节偏移」反切原文（会 panic 或写出错位内容，详见该模块头注释）。
 
 /// 迭代式目录遍历（显式栈，带深度上限），收集匹配行。
 ///
@@ -255,84 +221,6 @@ fn search_walk(
             stack.push((d, depth + 1));
         }
     }
-}
-
-/// 大小写不敏感替换，返回 (新内容, 替换次数)
-///
-/// 快路径：当 `to_lowercase()` 不改变字节长度时（ASCII / 中文等绝大多数场景），
-/// 直接用字节偏移做 match_indices + 切片重建，避免为整篇文档分配 Vec<char>。
-/// 慢路径：长度会变时（如 'İ'.to_lowercase() 产生两个字符）退化为逐字符比较，
-/// 保证字节偏移不错位。
-fn replace_ci(content: &str, query: &str, replacement: &str) -> (String, usize) {
-    if query.is_empty() {
-        return (content.to_string(), 0);
-    }
-
-    let query_lower = query.to_lowercase();
-    let content_lower = content.to_lowercase();
-
-    // 快路径：小写化不改变长度 → 字节偏移一一对应
-    if content_lower.len() == content.len() && query_lower.len() == query.len() {
-        let matches: Vec<(usize, usize)> = content_lower
-            .match_indices(&query_lower)
-            .map(|(s, m)| (s, s + m.len()))
-            .collect();
-        let count = matches.len();
-        if count == 0 {
-            return (content.to_string(), 0);
-        }
-        let mut out = String::with_capacity(content.len() + replacement.len() * count);
-        let mut last = 0;
-        for (s, e) in matches {
-            out.push_str(&content[last..s]);
-            out.push_str(replacement);
-            last = e;
-        }
-        out.push_str(&content[last..]);
-        return (out, count);
-    }
-
-    // 慢路径：按 char 处理，避免字节长度漂移
-    let query_chars: Vec<char> = query.chars().collect();
-    let query_len = query_chars.len();
-    if query_len == 0 {
-        return (content.to_string(), 0);
-    }
-    let content_chars: Vec<char> = content.chars().collect();
-
-    let mut positions: Vec<usize> = Vec::new();
-    let mut i = 0;
-    // 整串小写化后比较，与搜索侧 line_match_utf16 的慢路径语义完全一致。
-    // 旧实现逐字符只比较 to_lowercase 的第一个字符，'İ' 这类小写化变长的字符
-    // 会让「搜索预览 N 处、实际替换 N+M 处」（普通 i 也被误判命中并改写）。
-    let query_lower = query.to_lowercase();
-    while i + query_len <= content_chars.len() {
-        let seg: String = content_chars[i..i + query_len].iter().collect();
-        if seg.to_lowercase() == query_lower {
-            positions.push(i);
-            i += query_len;
-        } else {
-            i += 1;
-        }
-    }
-
-    let count = positions.len();
-    if count == 0 {
-        return (content.to_string(), 0);
-    }
-    let mut out = String::with_capacity(content.len() + replacement.len() * count);
-    let mut last = 0;
-    for &pos in &positions {
-        for c in &content_chars[last..pos] {
-            out.push(*c);
-        }
-        out.push_str(replacement);
-        last = pos + query_len;
-    }
-    for c in &content_chars[last..] {
-        out.push(*c);
-    }
-    (out, count)
 }
 
 /// 批量替换主流程：收集 → 统一原子写 → 失败回滚

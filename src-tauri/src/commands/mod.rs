@@ -1,8 +1,10 @@
 pub mod association;
+pub mod ci_match;
 pub mod directory;
 pub mod file;
 pub mod pdf;
 pub mod pdf_outline;
+pub mod pdf_url;
 pub mod search;
 pub mod watcher;
 
@@ -41,10 +43,23 @@ fn allowed_dirs() -> &'static Mutex<HashSet<String>> {
 pub fn allow_asset_directory(app: &AppHandle, dir: &str, recursive: bool) {
     // key 里带上 recursive：同一目录先非递归再递归放行属于「升级」，需要真正放行一次
     let key = if recursive { format!("{dir}\u{0}R") } else { format!("{dir}\u{0}F") };
-    if !lock_ok(allowed_dirs()).insert(key) {
+    let mut set = lock_ok(allowed_dirs());
+    if set.contains(&key) {
         return;
     }
-    let _ = app.asset_protocol_scope().allow_directory(dir, recursive);
+    // 必须**先真正授权成功**再记去重键。旧实现 insert 在 allow_directory 之前，
+    // 且丢弃返回值：create_file 会在 create_dir_all(parent) 之前调用本函数，
+    // 父目录尚不存在时授权可能失败；键却已写入，之后所有调用第一行就 return，
+    // 整个会话该目录的图片永远加载不出来，且没有任何日志可查。
+    match app.asset_protocol_scope().allow_directory(dir, recursive) {
+        Ok(()) => {
+            set.insert(key);
+        }
+        Err(e) => {
+            eprintln!("[asset] allow_directory failed for {dir:?} (recursive={recursive}): {e}");
+            // 不记键：下一次调用可以重试
+        }
+    }
 }
 
 /// 取锁并容忍 Mutex 中毒。

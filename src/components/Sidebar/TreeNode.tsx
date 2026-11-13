@@ -13,12 +13,13 @@ const TreeNode = ({ entry, depth }: Props) => {
   const fileTree = useAppStore((s) => s.fileTree)
   const toggleExpand = useAppStore((s) => s.toggleExpand)
   const openFile = useAppStore((s) => s.openFile)
-  const activeTabId = useAppStore((s) => s.activeTabId)
+  // 重命名后 tab.id 保持旧路径、tab.path 已是新路径，侧栏高亮必须按 path 比较
+  const activePath = useAppStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.path)
   const showTreeMenu = useAppStore((s) => s.showTreeMenu)
 
   const isExpanded = expandedDirs.has(entry.path)
   const children = fileTree[entry.path] ?? []
-  const isActive = activeTabId === entry.path
+  const isActive = activePath === entry.path
 
   if (entry.isDir) {
     return (

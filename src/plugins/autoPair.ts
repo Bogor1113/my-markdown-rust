@@ -139,26 +139,10 @@ export const autoPairPlugin = $prose(() =>
           }
         }
 
-        if (event.key === 'Delete') {
-          const { state } = _view
-          const { selection } = state
-          if (!selection.empty) return false
-
-          const $pos = state.selection.$from
-          const textAfter = $pos.parent.textContent.slice($pos.parentOffset)
-          const textBefore = $pos.parent.textContent.slice(0, $pos.parentOffset)
-
-          const lastChar = textBefore.slice(-1)
-          const nextChar = textAfter.slice(0, 1)
-
-          if (lastChar && PAIRS[lastChar] === nextChar) {
-            event.preventDefault()
-            const tr = state.tr.delete($pos.pos - 1, $pos.pos + 1)
-            _view.dispatch(tr)
-            return true
-          }
-        }
-
+        // Delete 不接管：旧实现是 Backspace 分支的复制粘贴，同样执行
+        // delete($pos.pos - 1, $pos.pos + 1)。光标在自动配出的 `()` 中间按
+        // Delete 会连开括号一起删掉，属静默内容丢失。交还 ProseMirror 默认行为
+        // 即可只删除光标后的闭合符，成对删除仍由上面的 Backspace 分支负责。
         return false
       },
     },

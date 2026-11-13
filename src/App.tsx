@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
+import { ask } from '@tauri-apps/plugin-dialog'
 import AppLayout from './components/Layout/AppLayout'
 import { syncDirtyFiles, takePendingOpenFiles } from './services/fs'
 import { setupFsWatcher, watchDirectory, stopWatching } from './services/watcher'
@@ -200,19 +201,53 @@ function App() {
 
   // 托盘「退出程序」确认后：先落盘全部未保存标签，再回调 Rust 立即退出。
   // 自动保存有 30s 防抖 / 60s 上限，「刚改完就退出」的那段窗口只在这里兜住。
-  // Rust 侧另有 3s 超时兜底退出，所以这里失败也不会导致退不出去。
+  // 旧实现 .finally 无条件 quit_now，且 flush 超时/写盘失败都当成功 → 静默丢数据；
+  // 现在保存结果明确回传：有失败或超时就撤销 Rust 兜底并弹二次确认，绝不静默退出。
   useEffect(() => {
     let unlisten: UnlistenFn | null = null
+    let cancelled = false
     void listen('quit-confirmed', () => {
-      void useAppStore.getState()
-        .flushAllDirty()
-        .finally(() => {
-          void invoke('quit_now').catch((e) => console.error('[quit_now]', e))
-        })
+      void (async () => {
+        // 异常路径按「未确认保存成功」处理（最保守），避免 catch 吞掉后直接退出
+        let failed: string[] = []
+        let timedOut = true
+        try {
+          const r = await useAppStore.getState().flushAllDirty()
+          failed = r.failed
+          timedOut = r.timedOut
+        } catch (e) {
+          console.error('[quit-confirmed] flushAllDirty failed:', e)
+        }
+        if (cancelled) return
+
+        if (failed.length > 0 || timedOut) {
+          // 撤销 Rust 侧 30s 兜底强退：接下来要弹确认框，用户停留多久都不该被杀
+          void invoke('cancel_quit').catch((e) => console.error('[cancel_quit]', e))
+          const detail = timedOut
+            ? '保存超时，可能有文件尚未写入磁盘'
+            : `以下文件保存失败：${failed.join('、')}`
+          const ok = await ask(`${detail}。仍要退出吗？未保存的修改将会丢失。`, {
+            title: '仍有文件未保存',
+            kind: 'warning',
+            okLabel: '仍要退出',
+            cancelLabel: '返回编辑',
+          })
+          // 用户选择「返回编辑」：留在窗口里手动保存后重试，不退出
+          if (!ok || cancelled) return
+        }
+        void invoke('quit_now').catch((e) => console.error('[quit_now]', e))
+      })()
     }).then((fn) => {
+      // cleanup 先于 promise resolve 时必须立刻注销：StrictMode 双挂载下否则会
+      // 留下永久监听，托盘「退出」触发两次 flush + 两次 quit_now。
+      if (cancelled) {
+        fn()
+        return
+      }
       unlisten = fn
     })
     return () => {
+      cancelled = true
       unlisten?.()
     }
   }, [])
@@ -221,10 +256,19 @@ function App() {
   // 交互与 Ctrl+N 完全一致（共用 promptNewMarkdownFile）
   useEffect(() => {
     let unlisten: UnlistenFn | null = null
-    void listen('tray-new-file', () => promptNewMarkdownFile()).then((fn) => {
+    let cancelled = false
+    void listen('tray-new-file', () => {
+      if (!cancelled) promptNewMarkdownFile()
+    }).then((fn) => {
+      // cleanup 先于 promise resolve：立刻注销，避免 StrictMode 双挂载留永久监听
+      if (cancelled) {
+        fn()
+        return
+      }
       unlisten = fn
     })
     return () => {
+      cancelled = true
       unlisten?.()
     }
   }, [])
@@ -258,7 +302,9 @@ function App() {
   useEffect(() => {
     let unlistenFile: UnlistenFn | null = null
     let unlistenFolder: UnlistenFn | null = null
+    let cancelled = false
     void listen<string[]>('app-drag-drop', (event) => {
+      if (cancelled) return
       const store = useAppStore.getState()
       const paths = event.payload
       for (const p of paths) {
@@ -267,9 +313,11 @@ function App() {
         })
       }
     }).then((fn) => {
+      if (cancelled) { fn(); return }
       unlistenFile = fn
     })
     void listen<string[]>('app-drag-drop-folder', (event) => {
+      if (cancelled) return
       const store = useAppStore.getState()
       const folders = event.payload
       if (folders.length > 0) {
@@ -280,9 +328,11 @@ function App() {
         })
       }
     }).then((fn) => {
+      if (cancelled) { fn(); return }
       unlistenFolder = fn
     })
     return () => {
+      cancelled = true
       unlistenFile?.()
       unlistenFolder?.()
     }
@@ -292,7 +342,9 @@ function App() {
   // 将文件路径发送给主实例，主实例通过此事件接收并打开文件
   useEffect(() => {
     let unlisten: UnlistenFn | null = null
+    let cancelled = false
     void listen<string[]>('single-instance-open-files', (event) => {
+      if (cancelled) return
       const store = useAppStore.getState()
       const paths = event.payload
       for (const p of paths) {
@@ -301,9 +353,11 @@ function App() {
         })
       }
     }).then((fn) => {
+      if (cancelled) { fn(); return }
       unlisten = fn
     })
     return () => {
+      cancelled = true
       unlisten?.()
     }
   }, [])

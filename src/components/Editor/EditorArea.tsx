@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useCallback, useRef } from 'react'
 import { useAppStore } from '../../stores/useAppStore'
 import { useShortcutsStore } from '../../stores/shortcuts'
+import { useSettingsStore } from '../../stores/settings'
+import { useSnippetStore } from '../../stores/snippets'
 // 懒加载编辑器：katex + lowlight 代码高亮等重型依赖只随编辑器一起加载，
 // 无文档打开时（如纯冷启动欢迎页）避免解析这 ~1.2MB 的启动开销；首次打开后即有缓存。
 const MilkdownEditor = lazy(() => import('./MilkdownEditor'))
@@ -9,6 +11,37 @@ import FindReplace from '../FindReplace'
 import StatusBar from '../StatusBar/StatusBar'
 import RecentFiles from '../RecentFiles/RecentFiles'
 import { isMarkdown } from '../../utils/files'
+
+/**
+ * 浮层判定分两层，不能混为一谈：
+ *
+ * - `isModalOpen`：真正的模态弹窗（遮罩层，背后不该响应任何全局快捷键）。
+ *   旧实现只看 promptDialog，于是设置弹窗里 Ctrl+F 会在背后开查找栏、Ctrl+S
+ *   直接保存、F8/F9 切模式，命令面板里 Ctrl+P 会重复触发。
+ * - `hasAnyOverlay`：再加上非模态的查找栏 / 搜索面板。这些浮层不遮断主界面，
+ *   用户仍可能同时按 F8/F9/Ctrl+Shift+L，若一并屏蔽会让视图切换快捷键在
+ *   查找栏常驻时莫名失效；它们只参与「全屏 Esc 让位」。
+ *
+ * 全屏 Esc 原先无条件 toggleFullscreen，与各浮层自己的 Esc 监听同时触发，
+ * 一次 Esc 既关浮层又退全屏，因此必须由 hasAnyOverlay 把关。
+ * 放在模块级：只读各 store 的 getState()，不依赖渲染闭包，handleKeyDown
+ * 可以安全地在 useCallback 里引用而不必进入依赖数组。
+ */
+const isModalOpen = (): boolean => {
+  const s = useAppStore.getState()
+  return !!(
+    s.promptDialog ||
+    s.paletteOpen ||
+    s.validationOpen ||
+    useSettingsStore.getState().settingsOpen ||
+    useSnippetStore.getState().modalOpen
+  )
+}
+
+const hasAnyOverlay = (): boolean => {
+  const s = useAppStore.getState()
+  return isModalOpen() || s.findOpen || s.searchOpen
+}
 
 const EditorArea = () => {
   const activeTabId = useAppStore((s) => s.activeTabId)
@@ -57,15 +90,11 @@ const EditorArea = () => {
     return e.key.toLowerCase() === mainKey.toLowerCase()
   }, [])
 
-  // 有模态弹窗（自绘 prompt 等）打开时屏蔽全局快捷键：
-  // 否则弹窗内按 Esc 会「关弹窗 + 退全屏」双重触发，Ctrl+F 会在弹窗背后开查找条
-  const isModalBlocking = () => !!useAppStore.getState().promptDialog
-
   // Ctrl+S 保存；Ctrl+F 打开查找；F11/Esc 全屏切换
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (isModalBlocking()) return
-    // 全屏状态下按 Esc 退出全屏
-    if (isFullscreenRef.current && e.key === 'Escape') {
+    if (isModalOpen()) return
+    // 全屏状态下按 Esc 退出全屏；有其它浮层时让位给浮层自己的 Esc 监听
+    if (isFullscreenRef.current && e.key === 'Escape' && !hasAnyOverlay()) {
       e.preventDefault()
       useAppStore.getState().toggleFullscreen()
       return
@@ -77,6 +106,14 @@ const EditorArea = () => {
     }
     if (matchShortcut(e, 'find')) {
       e.preventDefault()
+      // 源码模式下 FindReplace 未渲染（见下方 isMd && !sourceMode），旧实现仍
+      // openFind() 会吞掉按键且完全没有反馈，给出明确提示。
+      const st = useAppStore.getState()
+      const tab = st.tabs.find((t) => t.id === st.activeTabId)
+      if (tab?.sourceMode) {
+        st.showToast('源码模式下暂不支持文档内查找，请切回所见即所得模式（Ctrl+/）')
+        return
+      }
       openFindRef.current()
       return
     }

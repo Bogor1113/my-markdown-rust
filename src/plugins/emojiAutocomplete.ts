@@ -104,10 +104,12 @@ class EmojiPopup {
 export const emojiAutocompletePlugin = $prose(() => {
   const popup = new EmojiPopup()
   let colonPos = -1
+  /** 延后一帧弹窗的 timer：destroy 时必须撤销，否则卸载后仍会 coordsAtPos */
+  let showTimer: ReturnType<typeof setTimeout> | null = null
 
   /**
    * 把 `:query` 替换为选中的 emoji。
-   * popup.startPos 是冒号的**文档绝对位置**（colonPos = 插入点 + 1），
+   * popup.startPos 是冒号的**文档绝对位置**（= handleTextInput 的 from），
    * 替换区间 = [冒号, 当前光标)；两端均用绝对坐标，
    * 不能再叠加 $from.start()（历史上重复累加导致非首段替换位置错乱甚至 RangeError）。
    */
@@ -128,7 +130,13 @@ export const emojiAutocompletePlugin = $prose(() => {
             if (cursor <= colonPos || cursor > colonPos + 20) { popup.hide(); colonPos = -1 }
           }
         },
-        destroy() { popup.hide() },
+        destroy() {
+          if (showTimer) {
+            clearTimeout(showTimer)
+            showTimer = null
+          }
+          popup.hide()
+        },
       }
     },
     props: {
@@ -136,9 +144,17 @@ export const emojiAutocompletePlugin = $prose(() => {
         const $from = view.state.selection.$from
 
         if (text === ':') {
-          colonPos = from + 1
-          setTimeout(() => {
-            popup.show(view, colonPos, '', (emoji) => replaceWithEmoji(view, emoji))
+          // handleTextInput 的 from 是输入前的插入点，冒号输入后正占据该位置，
+          // 所以冒号的绝对位置是 from 而不是 from + 1。旧值会让替换从冒号之后
+          // 开始（留下一个 ':'）、query 少算第一个字符，并让 update() 因
+          // cursor <= colonPos 立刻把刚弹出的候选框关掉。
+          const start = from
+          colonPos = start
+          if (showTimer) clearTimeout(showTimer)
+          showTimer = setTimeout(() => {
+            showTimer = null
+            if (view.isDestroyed) return
+            popup.show(view, start, '', (emoji) => replaceWithEmoji(view, emoji))
           }, 0)
           return false
         }

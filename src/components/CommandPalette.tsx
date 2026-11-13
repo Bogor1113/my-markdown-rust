@@ -109,12 +109,16 @@ export const CommandPalette = () => {
     return fuzzySearchFiles(query, rootPath, fileTree, recentFiles)
   }, [query, mode, rootPath, fileTree, recentFiles])
 
+  // buildCommands() 内部读 getState() 的 tab / editor 快照：以空查询关闭面板、
+  // 期间切换文件再打开，会复用旧 tab.path 配新编辑器内容导出（文件名与图片
+  // 相对目录错配）。把 open / activeTabId / editor 加进依赖，重开或切文件时重建。
+  const activeTabId = useAppStore((s) => s.activeTabId)
+  const editor = useAppStore((s) => s.editor)
   const filteredCmds = useMemo(() => {
     if (mode !== 'commands') return []
     const q = query.trim().toLowerCase()
     return buildCommands().filter((c) => c.title.toLowerCase().includes(q))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, mode])
+  }, [query, mode, open, activeTabId, editor])
 
   const listLength = mode === 'files' ? files.length : filteredCmds.length
 

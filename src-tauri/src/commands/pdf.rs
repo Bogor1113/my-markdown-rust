@@ -266,7 +266,9 @@ fn run_pdf_worker(
         Ok(())
     }));
 
-    let url = format!("file:///{}", tmp_path.replace('\\', "/"));
+    // 用户名/目录名可能含空格、#、%、中文：必须百分号编码，否则 WebView2
+    // 导航 404 → 30s 超时 → 这类用户完全无法导出 PDF（见 pdf_url.rs 单测）。
+    let url = super::pdf_url::path_to_file_url(&tmp_path);
     let url_wide: Vec<u16> = url.encode_utf16().chain(std::iter::once(0)).collect();
     let mut nav_token = 0i64;
     unsafe {

@@ -1,6 +1,7 @@
 mod commands;
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -31,6 +32,11 @@ fn set_webview2_memory_level(w: &tauri::webview::PlatformWebview, level: i32) {
 
 /// 前端同步过来的未保存文件列表（用于窗口关闭确认）
 pub struct DirtyFiles(pub Mutex<Vec<String>>);
+
+/// 退出兜底令牌：每次「用户确认退出」或「前端撤销兜底」都 +1。
+/// 兜底线程睡醒后只有令牌未变才强制退出，从而让用户选择「返回编辑」后
+/// 不会被超时线程杀掉，也避免重复退出流程里的旧线程误杀新会话。
+static QUIT_TOKEN: AtomicU64 = AtomicU64::new(0);
 
 /// 呼出主界面：显示 + 还原最小化 + 聚焦（托盘菜单「打开主界面」/ 单击托盘图标）
 fn show_main_window(app: &tauri::AppHandle) {
@@ -115,8 +121,19 @@ fn quit_now(app: tauri::AppHandle) {
     });
 }
 
-/// 确认退出后给前端落盘的最长时间；超时仍未退出则强制退出（见 confirm_quit）
-const QUIT_FLUSH_GRACE_MS: u64 = 3000;
+/// 前端二次确认（保存并退出）后，撤销 Rust 侧兜底强制退出。
+/// 兜底只应覆盖「JS 崩溃/监听未注册导致永远不回调 quit_now」这一种情况；
+/// 用户停在确认框上的时间不该被算进超时。
+#[tauri::command]
+fn cancel_quit() {
+    QUIT_TOKEN.fetch_add(1, Ordering::SeqCst);
+}
+
+/// 确认退出后给前端落盘的最长时间；超时仍未退出则强制退出（见 confirm_quit）。
+/// 必须**大于**前端 `FLUSH_TIMEOUT_MS`(15s)：前端还在等写盘时后端不能先杀进程，
+/// 否则未落盘的编辑会随窗口销毁丢失。放宽到 30s 会带来「用户选返回编辑后仍被
+/// 强退」的风险，因此配套 `cancel_quit` 令牌让兜底可撤销。
+const QUIT_FLUSH_GRACE_MS: u64 = 30_000;
 
 /// 托盘「退出程序」：有未保存文件时弹确认框，确认后**先落盘再退出**
 fn confirm_quit(app: &tauri::AppHandle) {
@@ -156,10 +173,16 @@ fn confirm_quit(app: &tauri::AppHandle) {
             //
             // emit 是 fire-and-forget，所以另安排一个超时兜底退出：否则 JS 侧
             // 异常（白屏、崩溃、监听未注册）会让用户点了「退出」却退不出去。
+            // 每次确认领取一个新令牌；前端弹二次确认前会调 cancel_quit 让它失效。
+            let token = QUIT_TOKEN.fetch_add(1, Ordering::SeqCst) + 1;
             let _ = app_handle.emit("quit-confirmed", ());
             let fallback = app_handle.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(QUIT_FLUSH_GRACE_MS));
+                // 令牌变了：用户已取消退出，或已有新的退出流程接管 → 不再强退
+                if QUIT_TOKEN.load(Ordering::SeqCst) != token {
+                    return;
+                }
                 let a = fallback.clone();
                 let _ = fallback.run_on_main_thread(move || {
                     let _ = a.exit(0);
@@ -250,6 +273,7 @@ pub fn run() {
             commands::watcher::stop_watching,
             set_dirty_files,
             quit_now,
+            cancel_quit,
             file_size,
             temp_dir,
             take_pending_open_files,

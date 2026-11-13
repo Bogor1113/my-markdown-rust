@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { editorViewCtx, parserCtx } from '@milkdown/kit/core'
 import { useAppStore } from '../stores/useAppStore'
 import { useSnippetStore } from '../stores/snippets'
@@ -15,6 +15,17 @@ const SnippetModal = () => {
   const [editName, setEditName] = useState('')
   const [editContent, setEditContent] = useState('')
   const [showNew, setShowNew] = useState(false)
+
+  // Esc 关闭：与设置弹窗 / 查找栏 / 命令面板保持一致。此前片段库没有 Esc 监听，
+  // 打开后既关不掉、又会因为 modalOpen 被计入全局快捷键遮挡而挡住 F8/F9 等键。
+  useEffect(() => {
+    if (!modalOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) closeModal()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [modalOpen, closeModal])
 
   if (!modalOpen) return null
 

@@ -116,6 +116,13 @@ export function diffTopLevelRanges(prevDoc: Node, nextDoc: Node): TopLevelDiff[]
   let off = oldFrom
   for (let i = prefix; i < pc - suffix; i++) {
     const child = prevDoc.child(i)
+    // 复制粘贴会让同一个 Node 引用出现在多个位置：Map 只记最后一个位置，
+    // 后面的「保留块」匹配就会错位，被复制块的 decoration 只删不建（行号槽、
+    // 高亮、mermaid 图消失直到下次编辑）。检测到重复引用直接退化为全量重建，
+    // 这是正确的且比维护位置队列简单得多。
+    if (prevStarts.has(child)) {
+      return [{ oldFrom: 0, oldTo: prevDoc.content.size, newFrom: 0, newTo: nextDoc.content.size, full: true }]
+    }
     prevStarts.set(child, off)
     off += child.nodeSize
   }

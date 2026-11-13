@@ -94,6 +94,8 @@ export function insertToc(editor: Editor | null): boolean {
  *  读活动标签的 content（store 真源）：旧实现读 store.markdown——它只在
  *  Milkdown 挂载期间维护，源码模式下停留在旧值/别的文件，复制出错误内容 */
 export async function copyMarkdownSource(): Promise<boolean> {
+  // 与 formatDocument 同理：先强制 flush，否则复制到的是 200ms 防抖前的旧内容
+  useAppStore.getState().contentFlusher?.()
   const { tabs, activeTabId } = useAppStore.getState()
   const tab = tabs.find((t) => t.id === activeTabId)
   const md = tab?.content ?? ''
@@ -150,6 +152,10 @@ function formatMarkdown(md: string): string {
 /** 整理当前文档格式（Markdown 往返 + 规范化规则） */
 export function formatDocument(editor: Editor | null): boolean {
   if (!editor) return false
+  // store 的 content 由 dirtyTracker 在停顿 200ms 后才回写；敲完立刻点
+  // 「整理文档格式」会把最后 200ms 的输入静默丢掉，而 replaceAll 还会清空撤销栈，
+  // 丢了也找不回来。与 saveTab 一致：读 store 前先强制同步编辑器当前文档。
+  useAppStore.getState().contentFlusher?.()
   // 读活动标签的 content（store 真源）。旧实现读 store.markdown——那是编辑器
   // 挂载期间才维护的副本：源码模式下停留在旧值/别的文件，会把**错误文档**格式化。
   const { tabs, activeTabId } = useAppStore.getState()

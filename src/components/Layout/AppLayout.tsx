@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import FileTree from '../Sidebar/FileTree'
 import Toolbar from '../Toolbar/Toolbar'
 import TabBar from '../Tabs/TabBar'
@@ -41,11 +41,23 @@ function Divider({
 }) {
   const dragging = useRef(false)
   const startPos = useRef(0)
+  /** 拖拽期间注册的全局监听的注销函数，供组件卸载时兜底调用 */
+  const detachRef = useRef<(() => void) | null>(null)
+
+  // 拖拽中组件可能被卸载（F11 全屏 / Ctrl+Shift+L 隐藏侧栏 / hasOutline 变化）。
+  // 没有卸载兜底时，document 上的一对监听和 body.mditor-resizing 会永久残留：
+  // 全应用 user-select:none 再也无法选中文本，且每次泄漏一对监听。
+  useEffect(() => () => {
+    detachRef.current?.()
+    detachRef.current = null
+  }, [])
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault()
       e.stopPropagation()
+      // 防御：上一次拖拽异常未收尾时先清残留，避免重复注册
+      detachRef.current?.()
       dragging.current = true
       startPos.current = e.clientX
 
@@ -55,14 +67,20 @@ function Divider({
         startPos.current = ev.clientX
       }
 
-      const onMouseUp = () => {
-        dragging.current = false
+      function detach() {
         document.removeEventListener('mousemove', onMouseMove)
         document.removeEventListener('mouseup', onMouseUp)
         document.body.classList.remove('mditor-resizing')
+        dragging.current = false
+        detachRef.current = null
+      }
+
+      function onMouseUp() {
+        detach()
         onResizeEnd()
       }
 
+      detachRef.current = detach
       document.addEventListener('mousemove', onMouseMove)
       document.addEventListener('mouseup', onMouseUp)
       document.body.classList.add('mditor-resizing')

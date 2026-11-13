@@ -65,7 +65,13 @@ fn is_noise_path(path: &Path, root: &Path) -> bool {
             return true;
         }
     }
-    let rel = path.strip_prefix(root).unwrap_or(path);
+    // strip_prefix 失败（盘符大小写、\\?\ 前缀、UNC、尾斜杠）时**不能**退回完整
+    // 路径：那会重新检查所有祖先段，根路径里含点开头的段（如 .config\notes）
+    // 就会让整棵子树的事件全被判为噪音，watcher 静默失效。文件名噪音上面已单独
+    // 过滤，这里退化为「不过滤路径段」是安全的：宁可少过滤，不可漏事件。
+    let Ok(rel) = path.strip_prefix(root) else {
+        return false;
+    };
     rel.components().any(|c| match c {
         std::path::Component::Normal(seg) => is_noise_seg(seg.to_string_lossy().as_ref()),
         _ => false,

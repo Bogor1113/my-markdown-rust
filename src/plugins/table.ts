@@ -148,19 +148,17 @@ export function splitCell(view: EditorView): boolean {
   const colspan = cell.attrs.colspan || 1
   if (colspan <= 1) return false
 
-  // 拆分：创建多个 colspan=1 的副本
-  const childCount = cell.content.childCount
+  // 拆分：收集所有段落的行内节点后按 colspan 均分，每份包成**一个** paragraph。
+  // 旧实现遍历的是 cell.content.child(j)（段落节点），又经 wrapInlineToCell 再包一层
+  // paragraph → 产出 paragraph > paragraph 的 schema 违规文档；且 childCount 是段落数
+  // （通常为 1），colspan=2 时第一个新 cell 恒为空、第二个拿到嵌套段落。
+  // 这里与 mergeCells 复用 collectInlineNodes，保证每个 cell 恰好一个 paragraph。
+  const inline = collectInlineNodes(cell)
   const newCells: import('@milkdown/kit/prose/model').Node[] = []
   for (let i = 0; i < colspan; i++) {
-    const startIdx = Math.floor((i * childCount) / colspan)
-    const endIdx = Math.floor(((i + 1) * childCount) / colspan)
-    const children: import('@milkdown/kit/prose/model').Node[] = []
-    for (let j = startIdx; j < endIdx; j++) {
-      children.push(cell.content.child(j))
-    }
-    // cell 的合法内容是一个 paragraph；行内子节点必须用 paragraph 包裹后再放入
-    // （直接把 inline fragment 当 cell 内容会产生 schema 违规文档）
-    const frag = wrapInlineToCell(cell, children)
+    const startIdx = Math.floor((i * inline.length) / colspan)
+    const endIdx = Math.floor(((i + 1) * inline.length) / colspan)
+    const frag = wrapInlineToCell(cell, inline.slice(startIdx, endIdx))
     newCells.push(cell.type.create({ ...cell.attrs, colspan: 1 }, frag))
   }
 

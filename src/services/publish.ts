@@ -26,7 +26,14 @@ const STYLE_PROPS = [
 ]
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // 必须转义引号：值会被拼进 style="..." / src="..." 这类双引号属性，
+  // fontFamily 常含 `"Segoe UI", ...`，不转义会直接把属性截断并注入后续标记。
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 function pickStyle(cs: CSSStyleDeclaration): string {
@@ -45,7 +52,7 @@ function serialize(node: Node): string {
   const el = node as HTMLElement
   const cls = typeof el.className === 'string' ? el.className : ''
   if (
-    /(code-lang-badge|code-copy-btn|mditor-table-resize-handle|mditor-resize-handle|is-editor-empty|mditor-html-block|ProseMirror-trailingBreak)/.test(
+    /(code-lang-badge|code-copy-btn|mditor-table-resize-handle|mditor-resize-handle|is-editor-empty|mditor-html-block|ProseMirror-trailingBreak|mditor-mermaid-source-hidden|mditor-mermaid-source-visible|mditor-mermaid-editing)/.test(
       cls,
     )
   ) {
@@ -56,13 +63,13 @@ function serialize(node: Node): string {
   if (tag === 'img') {
     const src = el.getAttribute('src') || ''
     const alt = el.getAttribute('alt') || ''
-    return `<img src="${src}" alt="${escapeHtml(alt)}" style="max-width:100%;">`
+    return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" style="max-width:100%;">`
   }
 
   const cs = getComputedStyle(el)
   const style = pickStyle(cs)
   const inner = Array.from(el.childNodes).map(serialize).join('')
-  return `<${tag}${style ? ` style="${style}"` : ''}>${inner}</${tag}>`
+  return `<${tag}${style ? ` style="${escapeHtml(style)}"` : ''}>${inner}</${tag}>`
 }
 
 /**
@@ -71,6 +78,13 @@ function serialize(node: Node): string {
  */
 export async function copyWechatHtml(editor: Editor | null): Promise<boolean> {
   if (!editor) return false
+  // 若正在编辑 mermaid 源码，先切回图表预览并等 SVG 渲染完，避免复制出「只有代码没有图」。
+  const { ensureMermaidPreview } = await import('../plugins/mermaid')
+  await editor.action((ctx) => {
+    const view = ctx.get(editorViewCtx)
+    if (!view || view.isDestroyed) return
+    return ensureMermaidPreview(view)
+  })
   let html = ''
   editor.action((ctx) => {
     const view = ctx.get(editorViewCtx)

@@ -31,10 +31,12 @@ echo   MyMd Build  (bump: %BUMP%)
 echo ============================================
 echo.
 
-rem ---- Step 1: version bump ----
+rem ---- Step 1: version bump + backup + build marker + stale exe removal ----
+rem Logic lives in a .cjs file: cmd.exe mangles long inline node payloads.
+rem The script backs up all four version files first so :fail can roll back.
 set "MYMDEDIT_ROOT=%ROOT%"
 set "MYMDEDIT_BUMP=%BUMP%"
-node -e "const fs=require('fs');const root=process.env.MYMDEDIT_ROOT.replace(/[\\\/]$/,'')+'/';const bump=process.env.MYMDEDIT_BUMP;const tauri=JSON.parse(fs.readFileSync(root+'src-tauri/tauri.conf.json','utf8'));let [mj,mi,p]=tauri.version.split('.').map(Number);if(bump==='major'){mj++;mi=0;p=0}else if(bump==='minor'){mi++;p=0}else if(bump==='patch'){p++}const next=[mj,mi,p].join('.');console.log('[1/2] Version: '+tauri.version+' => '+next);if(next===tauri.version){console.log('      No change, keeping '+next);process.exit(0)}const pkg=JSON.parse(fs.readFileSync(root+'package.json','utf8'));pkg.version=next;tauri.version=next;fs.writeFileSync(root+'package.json',JSON.stringify(pkg,null,2)+String.fromCharCode(10));fs.writeFileSync(root+'src-tauri/tauri.conf.json',JSON.stringify(tauri,null,2)+String.fromCharCode(10));const cargo=fs.readFileSync(root+'src-tauri/Cargo.toml','utf8').replace(/(^version\s*=\s*\x22)[^\x22]+(\x22)/m,'$1'+next+'$2');fs.writeFileSync(root+'src-tauri/Cargo.toml',cargo);let lock=fs.readFileSync(root+'src-tauri/Cargo.lock','utf8');lock=lock.replace(/(name\s*=\s*\x22mymdedit\x22\nversion\s*=\s*\x22)[^\x22]+(\x22)/,'$1'+next+'$2');fs.writeFileSync(root+'src-tauri/Cargo.lock',lock);console.log('      Updated package.json / Cargo.toml / Cargo.lock / tauri.conf.json');"
+node "%ROOT%scripts\bump-version.cjs"
 if errorlevel 1 goto :fail
 
 rem ---- Step 2: build ----
@@ -75,5 +77,10 @@ exit /b 0
 echo.
 echo [ERROR] Build failed. See messages above.
 echo.
+rem Restore package.json / Cargo.toml / Cargo.lock / tauri.conf.json.
+rem Without this the version stays bumped after a failure and a retry bumps
+rem again, so the published version no longer matches the binary.
+set "MYMDEDIT_ROOT=%ROOT%"
+node "%ROOT%scripts\version-rollback.cjs"
 pause
 exit /b 1

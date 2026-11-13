@@ -69,6 +69,9 @@ const createButton = (view: EditorView, getPos: () => number | undefined): HTMLE
       btn.textContent = '已复制'
       btn.classList.add('copied')
       setTimeout(() => {
+        // 按钮是 widget DOM，编辑/切标签时会被 PM 移除；已脱离文档就不再写，
+        // 避免残留 timer 在 DOM 销毁后继续操作节点。
+        if (!btn.isConnected) return
         btn.textContent = '复制'
         btn.classList.remove('copied')
       }, 1500)

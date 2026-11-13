@@ -55,9 +55,23 @@ function loadNumber(key: string, fallback: number): number {
 function loadBoolean(key: string, fallback: boolean): boolean {
   try {
     const v = localStorage.getItem(key)
-    return v !== null ? v === 'true' : fallback
+    if (v === null) return fallback
+    // 兼容历史写法；损坏值必须回退默认而不是一律判 false —— autoSave 默认 true，
+    // 旧实现会把任何非 "true" 的值（含被写坏的 localStorage）静默关掉自动保存。
+    if (v === 'true' || v === '1' || v === 'yes' || v === 'on') return true
+    if (v === 'false' || v === '0' || v === 'no' || v === 'off') return false
+    return fallback
   } catch {
     return fallback
+  }
+}
+
+/** 持久化设置：配额满 / 隐私模式禁用 localStorage 时不能让「点设置」直接抛错 */
+function persist(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    /* 本次会话内设置仍然生效 */
   }
 }
 
@@ -92,33 +106,33 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   fontSize: Math.max(10, Math.min(32, loadNumber(FONT_SIZE_KEY, 15))),
   setFontSize: (size) => {
     const clamped = Math.max(10, Math.min(32, size))
-    localStorage.setItem(FONT_SIZE_KEY, String(clamped))
+    persist(FONT_SIZE_KEY, String(clamped))
     applyFontSize(clamped)
     set({ fontSize: clamped })
   },
 
   autoSave: loadBoolean(AUTO_SAVE_KEY, true),
   setAutoSave: (on) => {
-    localStorage.setItem(AUTO_SAVE_KEY, String(on))
+    persist(AUTO_SAVE_KEY, String(on))
     set({ autoSave: on })
   },
 
   spellcheck: loadBoolean(SPELLCHECK_KEY, false),
   setSpellcheck: (on) => {
-    localStorage.setItem(SPELLCHECK_KEY, String(on))
+    persist(SPELLCHECK_KEY, String(on))
     set({ spellcheck: on })
   },
 
   headingNumbering: loadBoolean(HEADING_NUMBERING_KEY, false),
   setHeadingNumbering: (on) => {
-    localStorage.setItem(HEADING_NUMBERING_KEY, String(on))
+    persist(HEADING_NUMBERING_KEY, String(on))
     document.documentElement.dataset.headingNumbering = String(on)
     set({ headingNumbering: on })
   },
 
   atmosMotion: loadBoolean(ATMOS_MOTION_KEY, false),
   setAtmosMotion: (on) => {
-    localStorage.setItem(ATMOS_MOTION_KEY, String(on))
+    persist(ATMOS_MOTION_KEY, String(on))
     applyAtmosMotion(on)
     set({ atmosMotion: on })
   },

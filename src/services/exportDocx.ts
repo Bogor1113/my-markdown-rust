@@ -434,6 +434,9 @@ async function resolveImageBytes(src: string, docPath: string): Promise<{ bytes:
   if (!/^(?:[A-Za-z]:[\\/]|\\\\|\/\/)/.test(filePath)) {
     filePath = joinPath(parentDirOf(docPath), filePath)
   }
+  // 与 PDF/HTML 导出一致：src 可能带 ?v=2 / #frag，读盘与取扩展名前必须去掉，
+  // 否则 readFileBytes 拿到带查询串的路径 → 解码失败、Word 里图片丢失。
+  filePath = filePath.split(/[?#]/)[0]
   try {
     const bytes = await readFileBytes(filePath)
     const ext = filePath.split('.').pop()?.toLowerCase() || 'png'
@@ -848,7 +851,7 @@ async function pushBlock(node: Node, ctx: WalkCtx): Promise<void> {
  * 导出当前内容为 Word（.docx）。
  * @returns 用户完成导出返回 true；用户取消保存对话框返回 false；失败抛异常。
  */
-export async function exportDocx(editor: Editor | null, docPath: string): Promise<boolean> {
+async function doExportDocx(editor: Editor | null, docPath: string): Promise<boolean> {
   if (!editor) return false
 
   const defaultName = basenameOf(docPath).replace(/\.md$/i, '') + '.docx'
@@ -942,4 +945,21 @@ export async function exportDocx(editor: Editor | null, docPath: string): Promis
   const size = await fileSize(filePath)
   if (!size || size <= 0) throw new Error('导出文件为空或不存在')
   return true
+}
+
+/**
+ * 导出串行化：activeInlineImages 是模块级 WeakMap，而 editor.action 内含 await
+ * （preloadInlineImages / pushBlock）。命令面板没有 busy 保护，快速连续执行两次
+ * 导出时，第二次会覆盖或置 null 第一次的预载表，行内图片静默丢失。排队执行保证
+ * 每次导出的表独占整个遍历过程；doExportDocx 的实现逻辑完全不变。
+ */
+let exportChain: Promise<unknown> = Promise.resolve()
+
+export function exportDocx(editor: Editor | null, docPath: string): Promise<boolean> {
+  const run = exportChain.then(
+    () => doExportDocx(editor, docPath),
+    () => doExportDocx(editor, docPath),
+  )
+  exportChain = run.catch(() => {})
+  return run
 }

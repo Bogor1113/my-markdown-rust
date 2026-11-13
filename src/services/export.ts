@@ -116,6 +116,12 @@ async function embedImages(root: HTMLElement, docPath: string): Promise<void> {
         }
       }
 
+      // 图片 src 可能带 ?v=2 / #frag（imageDisplay.ts 明确支持这种形态）：
+      // ext 与 readFileBytes 必须用去掉查询串的纯路径，否则扩展名错判、读盘失败 → 裂图。
+      // 仅对本地路径做，http(s)/data 由前面的分支处理，不能把 URL 的查询串误删。
+      if (!/^(?:https?:|data:)/i.test(filePath)) {
+        filePath = filePath.split(/[?#]/)[0]
+      }
       const ext = filePath.split('.').pop()?.toLowerCase() || ''
       const mime = IMAGE_MIME[ext] || 'image/png'
       try {
@@ -143,6 +149,16 @@ function cleanEditorDom(root: HTMLElement): void {
   root
     .querySelectorAll('.code-lang-badge, .mditor-table-resize-handle, .code-copy-btn, .code-gutter')
     .forEach((el) => el.remove())
+  // mermaid 采用「图 / 源码」双态：导出文档只要图，源码块（含 CodeMirror 内容）
+  // 必须整块摘掉，否则独立打开 HTML 时会露出一段 ```mermaid 代码。
+  root
+    .querySelectorAll('.mditor-mermaid-source-hidden, .mditor-mermaid-source-visible')
+    .forEach((el) => el.remove())
+  // 图容器上的编辑器交互痕迹（title 提示 / 编辑态工具条 class）
+  root.querySelectorAll('.mermaid-container').forEach((el) => {
+    el.classList.remove('mditor-mermaid-editing', 'mermaid-loading')
+    el.removeAttribute('title')
+  })
   // 空文档占位符
   root.querySelectorAll('p.is-editor-empty').forEach((el) => el.classList.remove('is-editor-empty'))
 }
@@ -200,6 +216,9 @@ const PRINT_STYLES = `
 body::before, body::after { display: none !important; }
 .ProseMirror { padding: 0 !important; }
 .code-lang-badge, .code-copy-btn, .mditor-table-resize-handle { display: none !important; }
+/* 静态文档里没有「点击编辑源码」交互，hover 提示与手型光标一并去掉 */
+.mermaid-container::after { display: none !important; }
+.mermaid-container { cursor: default !important; }
 pre { white-space: pre-wrap; word-wrap: break-word; }
 h1, h2, h3, h4 { break-after: avoid; }
 pre, blockquote, .katex-block, img { break-inside: avoid; }
@@ -240,6 +259,12 @@ async function buildExportBody(
     // 语法高亮是按视口懒生成的：屏幕外的代码块可能还没上色。导出是克隆 DOM，
     // 不先补齐的话导出的文件会缺掉大半代码着色。
     flushAllCodeHighlight(view)
+
+    // 正在编辑某张 mermaid 源码时，编辑器 DOM 里只有代码没有图。先切回预览态
+    // 并等 SVG 渲染落定，保证 PDF/HTML 导出拿到的是图而不是空容器或源码。
+    // 动态 import：不把 mermaid 插件模块拉进主入口的静态依赖链。
+    const { ensureMermaidPreview } = await import('../plugins/mermaid')
+    await ensureMermaidPreview(view)
 
     // 克隆 ProseMirror 渲染 DOM 作为文档本体
     const proseMirror = view.dom.cloneNode(true) as HTMLElement
