@@ -32,7 +32,7 @@ const FileTree = () => {
   return (
     <div className="flex h-full flex-col">
       {/* 头部 */}
-      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2 bg-[var(--color-bg)]/40">
+      <div className="flex items-center justify-between px-3 py-2">
         <span className="flex min-w-0 items-center gap-1.5 truncate text-[13px] font-semibold text-[var(--color-text)]">
           <FolderIcon size={15} />
           <span className="mditor-panel-title truncate">{rootName || '文件'}</span>

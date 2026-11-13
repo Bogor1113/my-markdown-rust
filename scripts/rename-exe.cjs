@@ -1,4 +1,4 @@
-// Copy the freshly built binary into output/ as MyMdEdit-v<version>.exe.
+// Copy the freshly built binary into output/ as MyMd-v<version>.exe.
 //
 // Why this lives in its own file instead of an inline `node -e "..."` in
 // build.bat:
@@ -25,7 +25,7 @@ const src = root + 'src-tauri/target/release/' + conf.mainBinaryName + '.exe'
 const outDir = root + 'output'
 
 fs.mkdirSync(outDir, { recursive: true })
-const to = path.join(outDir, 'MyMdEdit-v' + conf.version + '.exe')
+const to = path.join(outDir, 'MyMd-v' + conf.version + '.exe')
 
 if (!fs.existsSync(src)) {
   console.log('      [WARN] No ' + conf.mainBinaryName + '.exe found in target/release')

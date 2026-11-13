@@ -10,6 +10,8 @@ body,
 }
 
 body {
+  background: var(--color-bg);
+  color: var(--color-text);
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC",
     Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -17,121 +19,58 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Theme Variables ── */
-/* 默认暗黑主题 */
+/* 全站按钮统一无边框：避免删掉 Tailwind 的 border-* 后回退到浏览器默认 2px 边框。
+   需要边框的元素（输入框、下拉、弹窗卡片）不受影响。 */
+button {
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* ── Theme Variables ──
+   主题系统与 MyTerm 同源（见 src/themes.ts）：运行时由 applyMdTheme() 把
+   主题色写成 --color-* 内联变量，这里的 :root / [data-theme='light'] 只是
+   首屏（JS 尚未执行时）的兜底值，取值与「深蓝 Ocean / 明亮 Light」一致。 */
 :root {
-  --color-bg: #0e0f14;
-  --color-bg-sidebar: #15161e;
-  --color-bg-toolbar: #15161e;
-  --color-bg-tab: #1c1d27;
-  --color-bg-tab-active: #0e0f14;
-  --color-border: #262836;
-  --color-border-bright: #3a3d52;
-  --color-text: #d4d6e0;
-  --color-text-secondary: #8b8da0;
-  --color-text-dim: #525468;
-  --color-accent: #5b9dff;
-  --color-accent-hover: #7db5ff;
-  --color-accent-glow: rgba(91, 157, 255, 0.12);
-  --color-dirty: #fbbf24;
+  --color-bg: #0e1116;
+  --color-bg-alt: #16191e;
+  --color-bg-sidebar: #13161b;
+  --color-bg-toolbar: #13161b;
+  --color-bg-tab: #1c1f24;
+  --color-bg-tab-active: #0e1116;
+  --color-border: #282b30;
+  --color-border-bright: #36393e;
+  --color-text: #d6dae2;
+  --color-text-secondary: #8a8e94;
+  --color-text-dim: #5e6168;
+  --color-text-muted: #5e6168;
+  --color-accent: #4f8cff;
+  --color-accent-hover: #79a8ff;
+  --color-accent-glow: rgba(79, 140, 255, 0.14);
+  --color-dirty: #d29922;
   /* 磨砂噪点纹理（feTurbulence）：叠加在玻璃面板上模拟真实颗粒感 */
   --md-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
 }
 
-/* 亮色 / 纸墨：噪点减半，避免白底上像灰尘 */
-:root[data-theme='light'],
-:root[data-theme='paper'] {
+/* 明亮主题：噪点减半，避免白底上像灰尘 */
+:root[data-theme='light'] {
+  --color-bg: #f5f6f7;
+  --color-bg-alt: #edeeef;
+  --color-bg-sidebar: #f0f1f2;
+  --color-bg-toolbar: #f0f1f2;
+  --color-bg-tab: #e7e8e9;
+  --color-bg-tab-active: #f5f6f7;
+  --color-border: #dbdcdd;
+  --color-border-bright: #cdcecf;
+  --color-text: #333333;
+  --color-text-secondary: #848585;
+  --color-text-dim: #afb0b0;
+  --color-text-muted: #afb0b0;
+  --color-accent: #0451a5;
+  --color-accent-hover: #033e7d;
+  --color-accent-glow: rgba(4, 81, 165, 0.1);
+  --color-dirty: #bbb400;
   --md-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.015'/%3E%3C/svg%3E");
-}
-
-/* 亮色主题（用户切换后应用） */
-:root[data-theme='light'], :root[data-theme='paper'] {
-  --color-bg: #ffffff;
-  --color-bg-sidebar: #f6f7fa;
-  --color-bg-toolbar: #f6f7fa;
-  --color-bg-tab: #eef0f4;
-  --color-bg-tab-active: #ffffff;
-  --color-border: #dde0e8;
-  --color-border-bright: #c8ccd6;
-  --color-text: #1a1d24;
-  --color-text-secondary: #6b7280;
-  --color-text-dim: #adb1bd;
-  --color-accent: #2563eb;
-  --color-accent-hover: #1d4ed8;
-  --color-accent-glow: rgba(37, 99, 235, 0.10);
-  --color-dirty: #f59f00;
-}
-
-/* ── 纸墨（暖纸张护眼浅色） ── */
-:root[data-theme='paper'] {
-  --color-bg: #faf6ef;
-  --color-bg-sidebar: #efe9dc;
-  --color-bg-toolbar: #efe9dc;
-  --color-bg-tab: #e7e0cf;
-  --color-bg-tab-active: #faf6ef;
-  --color-border: #d9cfb8;
-  --color-border-bright: #c9bca0;
-  --color-text: #3d3b37;
-  --color-text-secondary: #7a7265;
-  --color-text-dim: #aca28e;
-  --color-accent: #b56430;
-  --color-accent-hover: #c77440;
-  --color-accent-glow: rgba(181, 100, 48, 0.10);
-  --color-dirty: #b58900;
-}
-
-/* ── 午夜蓝（深青静谧） ── */
-:root[data-theme='midnight'] {
-  --color-bg: #080c16;
-  --color-bg-sidebar: #0e1322;
-  --color-bg-toolbar: #0e1322;
-  --color-bg-tab: #16203a;
-  --color-bg-tab-active: #080c16;
-  --color-border: #1f2c4a;
-  --color-border-bright: #2d4070;
-  --color-text: #c5cee4;
-  --color-text-secondary: #8492b8;
-  --color-text-dim: #4e5d85;
-  --color-accent: #6ea8ff;
-  --color-accent-hover: #8fbfff;
-  --color-accent-glow: rgba(110, 168, 255, 0.14);
-  --color-dirty: #f0b429;
-}
-
-/* ── 日暮（暖棕暗金） ── */
-:root[data-theme='dusk'] {
-  --color-bg: #161310;
-  --color-bg-sidebar: #1f1b16;
-  --color-bg-toolbar: #1f1b16;
-  --color-bg-tab: #2a241e;
-  --color-bg-tab-active: #161310;
-  --color-border: #38302a;
-  --color-border-bright: #4d4036;
-  --color-text: #e8ddd0;
-  --color-text-secondary: #a89a8c;
-  --color-text-dim: #6a6258;
-  --color-accent: #e6a85a;
-  --color-accent-hover: #f0b970;
-  --color-accent-glow: rgba(230, 168, 90, 0.12);
-  --color-dirty: #f0a30a;
-}
-
-/* ── 石墨（中性炭黑、克制冷调） ── */
-:root[data-theme='graphite'] {
-  --color-bg: #0f1116;
-  --color-bg-sidebar: #171920;
-  --color-bg-toolbar: #171920;
-  --color-bg-tab: #21242d;
-  --color-bg-tab-active: #0f1116;
-  --color-border: #2a2e3a;
-  --color-border-bright: #3d4252;
-  --color-text: #d8dce4;
-  --color-text-secondary: #969ca8;
-  --color-text-dim: #535a68;
-  --color-accent: #7aa2f7;
-  --color-accent-hover: #9bb8fb;
-  --color-accent-glow: rgba(122, 162, 247, 0.12);
-  --color-dirty: #e0c07d;
 }
 
 /* ── Scrollbar ── */
@@ -250,14 +189,9 @@ body {
 }
 
 /* ── Tech-look enhancements: gradients, glow, depth ── */
-/* Toolbar subtle top-down gradient for depth */
+/* 工具栏：透明底 + 无下边框 */
 .mditor-toolbar {
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--color-bg-toolbar) 100%, transparent),
-    color-mix(in srgb, var(--color-bg-toolbar) 92%, var(--color-bg))
-  );
-  border-bottom: 1px solid var(--color-border);
+  background: transparent;
   /* 窗口过窄时允许横向滚动，而不是把按钮挤到右侧大纲上 */
   overflow-x: auto;
   scrollbar-width: thin;
@@ -273,13 +207,9 @@ body {
   background: var(--color-border);
   border-radius: 999px;
 }
-/* Sidebar subtle gradient for depth */
+/* Sidebar 透明：与主编辑区同一块平面 */
 .mditor-sidebar {
-  background: linear-gradient(
-    to right,
-    color-mix(in srgb, var(--color-bg-sidebar) 100%, transparent),
-    color-mix(in srgb, var(--color-bg-sidebar) 95%, var(--color-bg))
-  );
+  background: transparent;
 }
 /* Enhanced focus glow: accent-colored ring with soft glow */
 :focus-visible {
@@ -1377,12 +1307,8 @@ img.ProseMirror-separator {
   justify-content: space-between;
   height: 26px;
   padding: 0 12px;
-  border-top: 1px solid var(--color-border);
-  background: linear-gradient(
-    to top,
-    color-mix(in srgb, var(--color-bg-toolbar) 100%, transparent),
-    color-mix(in srgb, var(--color-bg-toolbar) 90%, var(--color-bg))
-  );
+  /* 无上边框：状态栏与编辑区连成一块平面 */
+  background: transparent;
   font-size: 12px;
   letter-spacing: 0.02em;
   color: var(--color-text-secondary);
@@ -1395,24 +1321,24 @@ img.ProseMirror-separator {
   align-items: center;
   gap: 8px;
 }
+/* 状态栏开关按钮：无边框，靠底色区分（与全站按钮一致） */
 .mditor-statusbar-btn {
-  padding: 1px 8px;
-  border-radius: 4px;
-  border: 1px solid transparent;
+  padding: 2px 8px;
+  border-radius: 5px;
+  border: none;
   background: transparent;
   color: var(--color-text-secondary);
   font-size: 11.5px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
 .mditor-statusbar-btn:hover {
-  border-color: var(--color-border);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
   color: var(--color-text);
 }
 .mditor-statusbar-btn.active {
-  border-color: color-mix(in srgb, var(--color-accent) 60%, transparent);
   color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
 }
 
 /* ── 字数统计 Tooltip ── */
@@ -2077,33 +2003,15 @@ body.atmos-paused.atmos-animated::before {
     color-mix(in srgb, var(--color-bg) 96%, transparent);
 }
 
-/* —— 玻璃面板：侧栏 / 标签栏 / 工具栏 / 状态栏 —— */
-.mditor-sidebar {
-  background:
-    var(--md-noise),
-    linear-gradient(180deg, color-mix(in srgb, var(--color-accent) 7%, transparent), transparent 90px),
-    color-mix(in srgb, var(--color-bg-sidebar) 76%, transparent);
-  background-size: 120px 120px, auto, auto;
-  backdrop-filter: blur(18px) saturate(1.35);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 8%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, #000000 22%, transparent);
-}
+/* —— 一体化面板：侧栏 / 工具栏 / 状态栏全部透明，
+   不再有噪点玻璃底与 inset 高光线（inset 会在边缘形成 1px 分割线） —— */
+.mditor-sidebar,
 .mditor-toolbar,
 .mditor-statusbar {
-  background:
-    var(--md-noise),
-    linear-gradient(180deg, color-mix(in srgb, var(--color-accent) 5%, transparent), transparent 90px),
-    color-mix(in srgb, var(--color-bg-toolbar) 76%, transparent);
-  background-size: 120px 120px, auto, auto;
-  backdrop-filter: blur(18px) saturate(1.3);
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, #ffffff 7%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, #000000 22%, transparent);
-}
-/* TabBar 顶部：一线主题色高光，分隔玻璃层与正文 */
-.tabbar-scroll {
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-accent) 18%, transparent);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
 }
 
 /* —— 工具栏按钮：悬浮主题色描边 + 辉光 —— */
@@ -2115,10 +2023,6 @@ body.atmos-paused.atmos-animated::before {
 .mditor-toolbar button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--color-accent) 11%, transparent) !important;
   color: var(--color-text) !important;
-  filter: brightness(1.12);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 34%, transparent),
-    0 0 12px -2px var(--color-accent-glow);
 }
 .mditor-toolbar button:active:not(:disabled) {
   transform: scale(0.94);
@@ -2132,27 +2036,13 @@ body.atmos-paused.atmos-animated::before {
   z-index: 1;
   color: var(--color-text) !important;
   font-weight: 500;
-  border: 1px solid var(--color-border) !important;
-  border-bottom: none !important;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--color-accent) 9%, transparent), transparent 72%),
-    var(--color-bg) !important;
-  box-shadow:
-    inset 0 -2px 0 var(--color-accent),
-    0 -2px 14px -6px color-mix(in srgb, var(--color-accent) 70%, transparent),
-    0 0 0 1px var(--color-accent-glow),
-    0 -9px 20px -12px var(--color-accent-glow) !important;
-  text-shadow: 0 0 14px var(--color-accent-glow);
+  /* 激活态只用底色区分：无边框、无底部光带、无顶部高光线 */
+  border: none !important;
+  background: color-mix(in srgb, var(--color-accent) 14%, var(--color-bg-tab)) !important;
+  box-shadow: none !important;
 }
 .mditor-tab-active::before {
-  content: '';
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  top: -1px;
-  height: 1px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent) 85%, transparent), transparent);
+  content: none;
 }
 
 /* —— 分组标题：渐变字 + 微光 —— */
@@ -2455,14 +2345,15 @@ body.atmos-animated .mditor-sidebar-empty::before {
   box-shadow: 0 0 10px -3px var(--color-accent-glow);
 }
 
-/* —— 可拖拽分隔条：默认细线可见，悬浮/拖拽时主题色辉光 —— */
+/* —— 可拖拽分隔条：默认完全透明（避免看起来像一条分割线），
+   只有鼠标移上去或拖动时才显形 —— */
 .mditor-resize-handle-v {
-  background: color-mix(in srgb, var(--color-border) 55%, transparent);
+  background: transparent;
 }
 .mditor-resize-handle-v:hover,
 .mditor-resize-handle-v.dragging {
-  background: color-mix(in srgb, var(--color-accent) 85%, transparent);
-  box-shadow: 0 0 10px -2px var(--color-accent-glow);
+  background: color-mix(in srgb, var(--color-accent) 70%, transparent);
+  box-shadow: none;
 }
 
 /* —— 无障碍：系统开启"减少动态效果"时，关闭氛围/呼吸/扫光动画 —— */
@@ -2486,34 +2377,15 @@ body.atmos-animated .mditor-sidebar-empty::before {
   align-items: stretch;
   position: relative;
   overflow: hidden;
-  background:
-    var(--md-noise),
-    radial-gradient(120% 280% at 4% -30%, color-mix(in srgb, var(--color-accent) 32%, transparent), transparent 55%),
-    radial-gradient(90% 240% at 96% -40%, color-mix(in srgb, var(--color-accent-hover) 24%, transparent), transparent 55%),
-    radial-gradient(70% 200% at 50% -60%, color-mix(in srgb, var(--color-accent) 10%, transparent), transparent 60%),
-    linear-gradient(180deg, color-mix(in srgb, var(--color-bg-toolbar) 76%, transparent), color-mix(in srgb, var(--color-bg) 72%, transparent));
-  background-size: 120px 120px, auto, auto, auto, auto;
-  backdrop-filter: blur(20px) saturate(1.3);
-  -webkit-backdrop-filter: blur(20px) saturate(1.3);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 14%, transparent);
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.25),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 9%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, #000000 25%, transparent);
+  /* 完全透明：不自绘玻璃/噪点/光晕，与下方共享同一层背景 */
+  background: transparent;
   user-select: none;
   cursor: default;
 }
 
-/* 顶部玻璃高光，与标签栏 / 状态栏呼应 */
+/* 顶部高光已移除：整窗是一块连续平面 */
 .titlebar::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent 4%, color-mix(in srgb, #ffffff 22%, transparent) 50%, transparent 96%);
-  pointer-events: none;
+  content: none;
 }
 
 .titlebar-drag {
@@ -2546,6 +2418,18 @@ body.atmos-animated .mditor-sidebar-empty::before {
   font-size: 11px;
   letter-spacing: 0.5px;
   color: var(--color-text-dim);
+}
+
+/* 版本号徽标：构建期从 package.json 读取，随版本升级自动更新 */
+.titlebar-version {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-text-dim);
+  padding: 3px 7px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  user-select: text;
 }
 
 .titlebar-controls {

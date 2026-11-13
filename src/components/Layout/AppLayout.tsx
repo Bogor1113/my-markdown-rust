@@ -129,7 +129,7 @@ const AppLayout = () => {
         {!isFullscreen && sidebarVisible && (
           <>
             <aside
-              className="mditor-sidebar flex h-full flex-shrink-0 flex-col border-r border-[var(--color-border)]"
+              className="mditor-sidebar flex h-full flex-shrink-0 flex-col"
               style={{ width: sidebarWidth }}
             >
               <FileTree />
@@ -149,7 +149,7 @@ const AppLayout = () => {
           <>
             <Divider onResize={handleOutlineResize} onResizeEnd={persistOutlineWidth} />
             <aside
-              className="mditor-sidebar flex h-full flex-shrink-0 flex-col border-l border-[var(--color-border)]"
+              className="mditor-sidebar flex h-full flex-shrink-0 flex-col"
               style={{ width: outlineWidth }}
             >
               <OutlinePanel embedded />
@@ -176,7 +176,7 @@ const AppLayout = () => {
           type="button"
           onClick={() => toggleFullscreen()}
           title="退出全屏（F11 / Esc）"
-          className="fixed right-3 top-3 z-[999] cursor-pointer rounded-md border border-[var(--color-border)] bg-[var(--color-bg-toolbar)] px-3 py-1.5 text-sm text-[var(--color-text)] shadow-lg transition-opacity hover:opacity-80"
+          className="fixed right-3 top-3 z-[999] cursor-pointer rounded-md bg-[var(--color-bg-toolbar)] px-3 py-1.5 text-sm text-[var(--color-text)] shadow-lg transition-opacity hover:opacity-80"
         >
           退出全屏
         </button>

@@ -88,7 +88,7 @@ const OutlinePanel = ({ embedded = false }: Props) => {
 
   const content = (
     <>
-      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2">
+      <div className="flex items-center justify-between px-3 py-2">
         <span className="mditor-panel-title text-[12px] font-semibold uppercase tracking-wide text-[var(--color-text-secondary)]">
           大纲
         </span>
@@ -130,7 +130,7 @@ const OutlinePanel = ({ embedded = false }: Props) => {
   // 独立模式（旧版兼容）
   if (collapsed) {
     return (
-      <aside className="flex h-full w-8 flex-shrink-0 flex-col items-center border-l border-[var(--color-border)] bg-[var(--color-bg-sidebar)]">
+      <aside className="flex h-full w-8 flex-shrink-0 flex-col items-center">
         <button
           className="py-3 text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text)]"
           onClick={() => setCollapsed(false)}
@@ -144,7 +144,7 @@ const OutlinePanel = ({ embedded = false }: Props) => {
 
   return (
     <aside
-      className={`flex h-full flex-shrink-0 flex-col ${embedded ? 'w-full' : 'w-60 border-l border-[var(--color-border)] mditor-sidebar'}`}
+      className={`flex h-full flex-shrink-0 flex-col ${embedded ? 'w-full' : 'w-60 mditor-sidebar'}`}
     >
       {content}
     </aside>

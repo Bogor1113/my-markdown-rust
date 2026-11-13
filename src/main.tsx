@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { bootstrapMdTheme } from "./themes";
 
 // 构建时通过 VITE_AUTO_DEVTOOLS=1 开启调试模式：
 // 全局捕获 window error / 未处理 rejection 并输出到控制台
@@ -15,9 +16,8 @@ if (import.meta.env.VITE_AUTO_DEVTOOLS === "1") {
   });
 }
 
-// 渲染前应用主题：默认暗黑，用户切换过的用 localStorage 记忆值
-const savedTheme = localStorage.getItem("mditor-theme");
-document.documentElement.dataset.theme = savedTheme === "light" ? "light" : "dark";
+// 渲染前应用主题：读取记忆值并注入完整调色板（与 MyTerm 同一套主题）
+bootstrapMdTheme();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

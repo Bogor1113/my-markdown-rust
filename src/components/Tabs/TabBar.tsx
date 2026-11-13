@@ -177,7 +177,7 @@ const TabBar = () => {
 
   return (
     <>
-      <div className="tabbar-scroll mditor-sidebar flex items-end gap-0.5 overflow-x-auto border-b border-[var(--color-border)] px-1 pt-1 select-none">
+      <div className="tabbar-scroll mditor-sidebar flex items-end gap-0.5 overflow-x-auto px-1 pt-1 select-none">
         {tabs.map((tab) => (
           <TabItem
             key={tab.id}

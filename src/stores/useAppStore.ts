@@ -6,35 +6,34 @@ import type { Tab, FileEntry, OutlineItem, ContextMenuState, LangPickerState, Tr
 import { readFile, writeFile, listDirectory, searchFiles, fileSize } from '../services/fs'
 import { isMarkdown, parentDirOf, pathKey } from '../utils/files'
 import { useSettingsStore } from './settings'
+import {
+  MD_THEMES,
+  MD_PALETTES,
+  DEFAULT_THEME,
+  LEGACY_THEME_MAP,
+  THEME_STORAGE_KEY,
+  applyMdTheme,
+  type MdThemeItem,
+} from '../themes'
 
-type Theme = 'dark' | 'light' | 'midnight' | 'dusk' | 'graphite' | 'paper'
+/** 主题 id：与 MyTerm 同源的一套主题（见 src/themes.ts） */
+type Theme = string
 
 /** 主题注册表：kind 决定亮/暗家族（导出背景色等按此分流） */
-export interface ThemeItem {
-  id: Theme
-  name: string
-  kind: 'light' | 'dark'
-  icon: string
-}
+export type ThemeItem = MdThemeItem
 
-export const THEMES: ThemeItem[] = [
-  { id: 'dark', name: '暗黑', kind: 'dark', icon: '🌙' },
-  { id: 'light', name: '明亮', kind: 'light', icon: '☀️' },
-  { id: 'midnight', name: '午夜蓝', kind: 'dark', icon: '🌌' },
-  { id: 'dusk', name: '日暮', kind: 'dark', icon: '🌆' },
-  { id: 'graphite', name: '石墨', kind: 'dark', icon: '🖤' },
-  { id: 'paper', name: '纸墨', kind: 'light', icon: '📄' },
-]
+/** 主题列表：刻意与 MyTerm 保持一致，两边切换同一主题观感相同 */
+export const THEMES: ThemeItem[] = MD_THEMES
 
 export function isDarkTheme(t: Theme | string): boolean {
   return (THEMES.find((x) => x.id === t) ?? THEMES[0]).kind === 'dark'
 }
 
 export function themeLabel(t: Theme): string {
-  return THEMES.find((x) => x.id === t)?.name ?? '暗黑'
+  return THEMES.find((x) => x.id === t)?.name ?? THEMES[0].name
 }
 
-const THEME_KEY = 'mditor-theme'
+const THEME_KEY = THEME_STORAGE_KEY
 
 /** 会话记忆：记住上次打开的目录/文件，下次启动自动恢复 */
 const SESSION_KEY = 'mditor-session'
@@ -149,17 +148,21 @@ function persistSession() {
 /** 初始主题：默认暗黑，若用户之前切换过则读取记忆 */
 function initialTheme(): Theme {
   try {
-    const saved = localStorage.getItem(THEME_KEY) as Theme | null
-    if (saved && THEMES.some((x) => x.id === saved)) return saved
+    const saved = localStorage.getItem(THEME_KEY)
+    if (saved) {
+      // 旧版主题 id（dark/midnight/dusk/graphite/paper）平滑迁移到新主题
+      const migrated = LEGACY_THEME_MAP[saved] ?? saved
+      if (MD_PALETTES[migrated]) return migrated
+    }
   } catch {
     /* ignore */
   }
-  return 'dark'
+  return DEFAULT_THEME
 }
 
-/** 应用主题：设置 data-theme 属性并记忆 */
+/** 应用主题：写入 CSS 变量 + data-theme 明暗标记，并持久化 */
 function applyTheme(t: Theme) {
-  document.documentElement.dataset.theme = t
+  applyMdTheme(t)
   try {
     localStorage.setItem(THEME_KEY, t)
   } catch {

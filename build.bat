@@ -1,9 +1,9 @@
 @echo off
 setlocal
-title MyMdEdit Build Script
+title MyMd Build Script
 
 rem ============================================================
-rem  MyMdEdit Auto Build Script
+rem  MyMd Auto Build Script
 rem  - Bumps version (patch by default) across package.json,
 rem    src-tauri/Cargo.toml, src-tauri/Cargo.lock and
 rem    src-tauri/tauri.conf.json
@@ -27,7 +27,7 @@ if /I "%~1"=="no" set "BUMP=no"
 
 echo.
 echo ============================================
-echo   MyMdEdit Build  (bump: %BUMP%)
+echo   MyMd Build  (bump: %BUMP%)
 echo ============================================
 echo.
 
@@ -66,7 +66,7 @@ echo ============================================
 echo   Build finished successfully!
 echo ============================================
 echo.
-echo Output dir: output\MyMdEdit-vX.Y.Z.exe (standalone, no installer. See Step [3/3] output.)
+echo Output dir: output\MyMd-vX.Y.Z.exe (standalone, no installer. See Step [3/3] output.)
 echo.
 pause
 exit /b 0

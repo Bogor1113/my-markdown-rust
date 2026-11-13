@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { version } from '../../package.json'
 
 /**
  * 自绘标题栏：原生装饰已关闭（tauri.conf.json decorations:false），
@@ -78,10 +79,13 @@ export default function TitleBar({ children }: { children?: ReactNode }) {
           />
         </svg>
         <span className="titlebar-title" data-tauri-drag-region>
-          MyMdEdit
+          MyMd
         </span>
         <span className="titlebar-sub" data-tauri-drag-region>
           波哥自研
+        </span>
+        <span className="titlebar-version" data-tauri-drag-region title={`当前版本 v${version}`}>
+          v{version}
         </span>
       </div>
 

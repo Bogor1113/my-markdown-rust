@@ -201,7 +201,7 @@ const Toolbar = () => {
     try {
       const status = await setMdAssociation()
       setAssocStatus(status)
-      showToast(status.associated ? '已关联 .md / .markdown 文件到 MyMdEdit' : status.message)
+      showToast(status.associated ? '已关联 .md / .markdown 文件到 MyMd' : status.message)
     } catch (e) {
       setAssocStatus(null)
       showToast(`设置文件关联失败：${e}`)
@@ -279,7 +279,7 @@ const Toolbar = () => {
     assocStatus === null
       ? '文件关联状态未知'
       : assocStatus.associated
-        ? '已关联：.md / .markdown 默认用 MyMdEdit 打开'
+        ? '已关联：.md / .markdown 默认用 MyMd 打开'
         : `未关联（当前：${assocStatus.message}），点击设置`
 
   const fmtBtn = (title: string, label: string, onClick: () => void, style?: CSSProperties) => (
@@ -329,7 +329,7 @@ const Toolbar = () => {
 
       {/* Markdown 格式化 */}
         {isMdTab && (
-        <div className="ml-1 flex items-center gap-0.5 border-l border-[var(--color-border)] pl-1.5 overflow-hidden shrink-0">
+        <div className="ml-1 flex items-center gap-0.5 pl-1.5 overflow-hidden shrink-0">
           {fmtBtn('粗体 (Ctrl+B)', 'B', () => runCmd(toggleStrongCommand), { fontWeight: 700 })}
           {fmtBtn('斜体 (Ctrl+I)', 'I', () => runCmd(toggleEmphasisCommand), { fontStyle: 'italic' })}
           {fmtBtn('删除线', 'S', () => runCmd(toggleStrikethroughCommand), {
