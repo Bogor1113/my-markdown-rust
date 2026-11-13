@@ -12,6 +12,7 @@
 //!    避免目录停留在「部分已改、部分未改」的半毁状态。
 
 use super::ci_match::{line_match_utf16, replace_ci};
+use super::validate_path;
 use serde::Serialize;
 use std::collections::HashSet;
 
@@ -97,6 +98,7 @@ pub async fn search_files(
     query: String,
     max_results: Option<usize>,
 ) -> Result<Vec<SearchResult>, String> {
+    validate_path(&root)?;
     if query.is_empty() {
         return Ok(Vec::new());
     }
@@ -125,6 +127,7 @@ pub async fn replace_files(
     query: String,
     replacement: String,
 ) -> Result<Vec<ReplaceResult>, String> {
+    validate_path(&root)?;
     if query.is_empty() {
         return Ok(Vec::new());
     }

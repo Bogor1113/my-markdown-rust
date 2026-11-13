@@ -3,7 +3,7 @@
 use serde::Serialize;
 use tauri::AppHandle;
 
-use super::allow_asset_directory;
+use super::{allow_asset_directory, validate_path};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +22,9 @@ pub struct FileEntry {
 /// 窗口（拖动、输入全部无响应）。
 #[tauri::command]
 pub async fn list_directory(app: AppHandle, path: String) -> Result<Vec<FileEntry>, String> {
+    // 先校验再授权：旧实现无条件把任意路径（含 C:\）递归加入 asset scope，
+    // 等于把整个磁盘向 WebView 敞开了读取面。
+    validate_path(&path)?;
     // 授权需要 AppHandle，保持在阻塞调用之前完成
     // 打开/展开的文件夹视为工作区路径，授权给 asset 协议（递归，含 .assets 子目录）
     allow_asset_directory(&app, &path, true);

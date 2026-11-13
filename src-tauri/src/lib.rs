@@ -200,6 +200,11 @@ fn set_dirty_files(state: tauri::State<DirtyFiles>, files: Vec<String>) {
 /// 获取文件大小（字节），用于大文件保护判断
 #[tauri::command]
 fn file_size(path: &str) -> u64 {
+    // 与其余自定义命令一致：形态不合法的路径直接当作「取不到大小」，
+    // 不让它触达 std::fs（该命令返回 u64，无法回传 Err）。
+    if crate::commands::validate_path(path).is_err() {
+        return 0;
+    }
     std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
 }
 
@@ -289,8 +294,10 @@ pub fn run() {
                 // 右上角（自绘的）关闭按钮落到屏幕外点不到
                 fit_window_to_work_area(&win);
             }
-            // 仅 debug 构建：启动后自动打开 DevTools，便于定位生产环境运行时报错
-            #[cfg(debug_assertions)]
+            // 仅「debug 构建 + 显式启用 devtools feature」时自动打开 DevTools。
+            // `open_devtools()` 由 tauri 的 devtools feature 提供，release 下该方法
+            // 根本不存在；两个条件必须同时满足，否则 release 会编译失败或误留入口。
+            #[cfg(all(debug_assertions, feature = "devtools"))]
             {
                 if let Some(win) = app.get_webview_window("main") {
                     let _ = win.open_devtools();

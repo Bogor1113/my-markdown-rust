@@ -28,7 +28,9 @@ if not exist "%TAURI%" (
 set VITE_AUTO_DEVTOOLS=1
 
 echo [1/1] Building debug exe (no NSIS bundle)...
-call "%TAURI%" build --debug --no-bundle
+rem -f devtools: the devtools feature is off by default (release build has no
+rem DevTools). Debug builds opt in explicitly so F12 still works while debugging.
+call "%TAURI%" build --debug --no-bundle -f devtools
 if errorlevel 1 goto :fail
 
 echo.

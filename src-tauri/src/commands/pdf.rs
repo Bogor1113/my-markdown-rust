@@ -41,6 +41,11 @@ use super::pdf_outline::OutlineEntry;
 /// 等待打印完成的上限（页面加载 + 排版 + 打印）
 const PRINT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// 建立 WebView2 环境 / 控制器时等待异步回调的上限。
+/// 旧实现用无超时的 `recv()`：回调一旦不投递，worker 线程连同 HWND 和
+/// user data folder 会永久阻塞，导出失败也残留几十 MB 临时目录。
+const ASYNC_CALLBACK_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// 隐蔽窗口的原生窗口过程：全部交给 DefWindowProcW（隐藏窗口不处理任何交互消息）。
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn wv2_window_proc(
@@ -82,28 +87,76 @@ fn run_pdf_worker(
         },
         UI::WindowsAndMessaging::{
             CreateWindowExW, DestroyWindow, DispatchMessageW, PeekMessageW, RegisterClassW,
-            TranslateMessage, MSG, PM_REMOVE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+            TranslateMessage, UnregisterClassW, MSG, PM_REMOVE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
         },
     };
 
-    // 0. 本线程必须有 STA + 消息泵（WebView2 回调会以窗口消息形式投递到本线程队列）
-    unsafe {
-        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+    // 0. 本线程必须有 STA + 消息泵（WebView2 回调会以窗口消息形式投递到本线程队列）。
+    //    必须检查返回值：RPC_E_CHANGED_MODE 表示线程已被初始化为其它公寓模式，
+    //    后续所有 COM 调用都会在错误的公寓上执行；且这次调用并未增加引用计数，
+    //    不能配对 CoUninitialize。旧实现丢弃 HRESULT，等于埋了一个未定义行为。
+    let com_initialized = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }.is_ok();
+    if !com_initialized {
+        return Err("初始化 COM(STA) 失败（线程可能已处于其它公寓模式）".into());
     }
 
+    // RAII 清理守卫：必须是本函数第一个持有资源的局部变量。Rust 按声明逆序 drop，
+    // 守卫因此最后执行 —— 所有 COM 接口（environment / controller / core /
+    // webview7 / env6 / nav_handler）都已释放，此时 CoUninitialize 才安全；
+    // 任何 `?` 提前返回也都会自动完成窗口销毁、类注销、UDF 删除与 COM 反初始化。
+    struct PdfCleanup {
+        class_wide: Vec<u16>,
+        hinstance: HINSTANCE,
+        hwnd: Option<HWND>,
+        controller: Option<ICoreWebView2Controller>,
+        udf_dir: std::path::PathBuf,
+        com_initialized: bool,
+    }
+    impl Drop for PdfCleanup {
+        fn drop(&mut self) {
+            unsafe {
+                // 先关 controller 再销毁窗口；Close 必须早于 COM 引用全部释放。
+                if let Some(c) = self.controller.take() {
+                    let _ = c.Close();
+                }
+                if let Some(h) = self.hwnd.take() {
+                    let _ = DestroyWindow(h);
+                }
+                // 窗口类此前从不注销，每次导出都会泄漏一个 ATOM
+                let _ = UnregisterClassW(PCWSTR(self.class_wide.as_ptr()), Some(self.hinstance));
+            }
+            let _ = std::fs::remove_dir_all(&self.udf_dir);
+            if self.com_initialized {
+                unsafe { CoUninitialize() }
+            }
+        }
+    }
+
+    let hinstance = unsafe { GetModuleHandleW(None) }
+        .ok()
+        .map(|h| HINSTANCE(h.0))
+        .unwrap_or_default();
+    let mut cleanup = PdfCleanup {
+        class_wide: class_name.encode_utf16().chain(std::iter::once(0)).collect(),
+        hinstance,
+        hwnd: None,
+        controller: None,
+        udf_dir: udf_dir.to_path_buf(),
+        com_initialized,
+    };
+
     // 1. 自建完全隐藏的窗口（A4 @ 96dpi = 794×1123 逻辑像素，排版与纸张一致）
-    let class_wide: Vec<u16> = class_name.encode_utf16().chain(std::iter::once(0)).collect();
     let hwnd: HWND = unsafe {
         let wc = WNDCLASSW {
             lpfnWndProc: Some(wv2_window_proc),
-            lpszClassName: PCWSTR(class_wide.as_ptr()),
+            lpszClassName: PCWSTR(cleanup.class_wide.as_ptr()),
             ..Default::default()
         };
         let _ = RegisterClassW(&wc);
         CreateWindowExW(
             Default::default(),
-            PCWSTR(class_wide.as_ptr()),
-            PCWSTR(class_wide.as_ptr()),
+            PCWSTR(cleanup.class_wide.as_ptr()),
+            PCWSTR(cleanup.class_wide.as_ptr()),
             WS_OVERLAPPEDWINDOW,
             0,
             0,
@@ -111,11 +164,12 @@ fn run_pdf_worker(
             1123,
             None,
             None,
-            GetModuleHandleW(None).ok().map(|h| HINSTANCE(h.0)),
+            Some(hinstance),
             None,
         )
     }
     .map_err(|e| format!("创建隐藏窗口失败：{e}"))?;
+    cleanup.hwnd = Some(hwnd);
 
     // 2. 独立 WebView2 Environment（独立 user data folder，绕开与主 webview 共享环境的 0x8007139F）
     let environment: ICoreWebView2Environment = {
@@ -125,9 +179,11 @@ fn run_pdf_worker(
             .encode_utf16()
             .chain(std::iter::once(0))
             .collect();
-        let udf_ptr = PCWSTR(udf_wide.as_ptr());
         CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
             Box::new(move |handler| unsafe {
+                // 缓冲区必须 move 进闭包保活：CreateCoreWebView2EnvironmentWithOptions
+                // 是异步创建，超时路径提前返回时若缓冲区已 drop，裸指针就悬垂了。
+                let udf_ptr = PCWSTR(udf_wide.as_ptr());
                 webview2_com::Microsoft::Web::WebView2::Win32::CreateCoreWebView2EnvironmentWithOptions(
                     PCWSTR::null(),
                     udf_ptr,
@@ -138,14 +194,18 @@ fn run_pdf_worker(
             }),
             Box::new(move |error_code, environment| {
                 error_code?;
-                etx.send(environment.ok_or_else(|| windows::core::Error::from(E_POINTER)))
-                    .expect("send env");
+                // 接收端可能已随超时/错误路径提前销毁：发送失败不能 panic
+                // （叠加 panic="abort" 会直接杀掉整个进程），静默忽略即可。
+                let _ = etx.send(environment.ok_or_else(|| windows::core::Error::from(E_POINTER)));
                 Ok(())
             }),
         )
         .map_err(|e| format!("创建 WebView2 环境失败：{e}"))?;
-        erx.recv()
-            .map_err(|_| "创建 WebView2 环境超时".to_string())?
+        erx.recv_timeout(ASYNC_CALLBACK_TIMEOUT)
+            .map_err(|e| match e {
+                mpsc::RecvTimeoutError::Timeout => "创建 WebView2 环境超时（回调未投递）".to_string(),
+                mpsc::RecvTimeoutError::Disconnected => "创建 WebView2 环境回调丢失".to_string(),
+            })?
             .map_err(|e| format!("创建 WebView2 环境失败：{e}"))?
     };
 
@@ -167,19 +227,22 @@ fn run_pdf_worker(
                     }),
                     Box::new(move |error_code, controller| {
                         error_code?;
-                        ctx.send(controller.ok_or_else(|| windows::core::Error::from(E_POINTER)))
-                            .expect("send controller");
+                        // 同环境回调：发送失败不 panic，交给 recv_timeout 兜底
+                        let _ = ctx.send(controller.ok_or_else(|| windows::core::Error::from(E_POINTER)));
                         Ok(())
                     }),
                 );
             match wait_result {
-                Ok(()) => match crx.recv() {
+                Ok(()) => match crx.recv_timeout(ASYNC_CALLBACK_TIMEOUT) {
                     Ok(Ok(c)) => {
                         created = Some(c);
                         break;
                     }
                     Ok(Err(e)) => last_err = Some(e.to_string()),
-                    Err(_) => last_err = Some("回调丢失".to_string()),
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        last_err = Some("等待控制器创建回调超时".to_string())
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => last_err = Some("回调丢失".to_string()),
                 },
                 Err(e) => last_err = Some(format!("等待控制器创建回调失败：{e}")),
             }
@@ -193,6 +256,8 @@ fn run_pdf_worker(
             format!("创建 WebView2 控制器失败：{}", last_err.unwrap_or_default())
         })?
     };
+    // 交给守卫：此后任何 `?` 提前返回都会先 Close 控制器再销毁窗口
+    cleanup.controller = Some(controller.clone());
 
     unsafe {
         controller
@@ -320,14 +385,9 @@ fn run_pdf_worker(
         }
     }
 
-    // 6. 清理：销毁窗口、退出 COM、尽力删除临时 user data folder
-    unsafe {
-        let _ = controller.Close();
-        let _ = DestroyWindow(hwnd);
-        let _ = CoUninitialize();
-    }
-    let _ = std::fs::remove_dir_all(udf_dir);
-
+    // 6. 清理由上面的 PdfCleanup 守卫在**任何**返回路径上统一执行：
+    //    controller.Close → DestroyWindow → UnregisterClassW → 删除 UDF →
+    //    CoUninitialize（且必定晚于本函数所有 COM 接口释放）。
     if !reported.load(Ordering::SeqCst) {
         Err("PDF 导出超时（页面加载或打印未在 30 秒内完成）".to_string())
     } else {
@@ -369,6 +429,9 @@ async fn export_pdf_windows(
     #[cfg(debug_assertions)]
     eprintln!("[pdf-export] 1. start, html={}B target={}", html.len(), target_path);
     let _ = &app;
+    // 自定义命令不经过 tauri-plugin-fs 的 scope，导出目标路径同样要过形态校验，
+    // 避免 DevTools / 恶意文档把 PDF 写到设备名或 NTFS 交替数据流里。
+    super::validate_path(&target_path)?;
     // 1. 自包含 HTML → 临时文件（file:// 导航：无 data: URL 长度/加载问题）
     //    关键修复：CSS 中的 position:fixed 会导致 WebView2 PrintToPdf 在每一页
     //    重复渲染 fixed 元素（工具栏/标题栏等 11 处），大量页面时性能爆炸甚至

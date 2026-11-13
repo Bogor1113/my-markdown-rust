@@ -13,7 +13,7 @@ use base64::Engine as _;
 use std::path::Path;
 use tauri::AppHandle;
 
-use super::{allow_asset_directory, atomic_write};
+use super::{allow_asset_directory, atomic_write, validate_path};
 
 /// base64 编解码（标准 alphabet，带 padding）
 const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
@@ -21,6 +21,7 @@ const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STA
 /// 读取文件内容
 #[tauri::command]
 pub async fn read_file(app: AppHandle, path: String) -> Result<String, String> {
+    validate_path(&path)?;
     // 打开文档 → 授权其所在目录（递归），使文档引用的本地图片可显示：
     // 含 `<文档名>.assets/`、`images/` 等相对路径以及绝对路径图片。
     // 跳过盘符根目录：直接授权整个磁盘违背收窄本意（如 C:\a.md 不授权 C:\**）
@@ -39,6 +40,7 @@ pub async fn read_file(app: AppHandle, path: String) -> Result<String, String> {
 /// 写入文件内容（原子写）
 #[tauri::command]
 pub async fn write_file(path: String, content: String) -> Result<(), String> {
+    validate_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
         atomic_write(Path::new(&path), content.as_bytes())
             .map_err(|e| format!("Failed to write file: {e}"))
@@ -50,6 +52,7 @@ pub async fn write_file(path: String, content: String) -> Result<(), String> {
 /// 写入二进制文件（图片等），自动创建父目录
 #[tauri::command]
 pub async fn save_image(app: AppHandle, path: String, bytes: Vec<u8>) -> Result<(), String> {
+    validate_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || write_image_bytes(&app, &path, &bytes))
         .await
         .map_err(|e| format!("Failed to save image: {e}"))?
@@ -58,6 +61,7 @@ pub async fn save_image(app: AppHandle, path: String, bytes: Vec<u8>) -> Result<
 /// 读取二进制文件内容（图片等）
 #[tauri::command]
 pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
+    validate_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || std::fs::read(&path))
         .await
         .map_err(|e| format!("Failed to read file: {e}"))?
@@ -73,6 +77,7 @@ pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
 /// base64 编码本身对大图也是毫秒级以上的 CPU 工作，一并放进 blocking 线程。
 #[tauri::command]
 pub async fn read_file_b64(path: String) -> Result<String, String> {
+    validate_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
         let bytes =
             std::fs::read(&path).map_err(|e| format!("Failed to read file: {e}"))?;
@@ -86,6 +91,7 @@ pub async fn read_file_b64(path: String) -> Result<String, String> {
 /// 与 `read_file_b64` 配对，用于替代 `Vec<u8>` 的 JSON 数组传输。
 #[tauri::command]
 pub async fn save_image_b64(app: AppHandle, path: String, data: String) -> Result<(), String> {
+    validate_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
         let bytes = B64
             .decode(data)
@@ -118,6 +124,7 @@ fn write_image_bytes(app: &AppHandle, path: &str, bytes: &[u8]) -> Result<(), St
 /// 目录上会被拖住数百 ms 甚至更久，期间窗口完全无响应。
 #[tauri::command]
 pub async fn create_file(app: AppHandle, path: String, content: Option<String>) -> Result<(), String> {
+    validate_path(&path)?;
     // 授权需要 AppHandle，保持在阻塞调用之前完成
     if let Some(parent) = Path::new(&path).parent() {
         let dir = parent.to_string_lossy().to_string();
@@ -156,6 +163,7 @@ pub async fn create_file(app: AppHandle, path: String, content: Option<String>) 
 /// 创建目录（含父目录）
 #[tauri::command]
 pub async fn create_directory(path: String) -> Result<(), String> {
+    validate_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
         std::fs::create_dir_all(&path).map_err(|e| format!("Failed to create directory: {}", e))
     })
@@ -166,6 +174,8 @@ pub async fn create_directory(path: String) -> Result<(), String> {
 /// 重命名文件或目录，目标已存在则报错
 #[tauri::command]
 pub async fn rename_path(old_path: String, new_path: String) -> Result<(), String> {
+    validate_path(&old_path)?;
+    validate_path(&new_path)?;
     tauri::async_runtime::spawn_blocking(move || {
         let old = Path::new(&old_path);
         let new = Path::new(&new_path);
@@ -205,6 +215,7 @@ pub struct DeleteResult {
 /// 同步 command 跑在 Tauri 主线程 → 期间整个窗口完全无响应（拖动、点击都失效）。
 #[tauri::command]
 pub async fn delete_path(path: String) -> Result<DeleteResult, String> {
+    validate_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || delete_path_sync(&path))
         .await
         .map_err(|e| format!("Delete task failed: {e}"))?

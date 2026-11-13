@@ -131,6 +131,7 @@ fn collect_watch_dirs(
 /// 空目录注册后，其内部后续的文件变化即可正常上报。
 #[tauri::command]
 pub async fn watch_directory(app: AppHandle, path: String) -> Result<(), String> {
+    super::validate_path(&path)?;
     let root = std::path::PathBuf::from(&path);
     // 目录遍历本身是阻塞 IO：打开大仓库时递归 read_dir 要跑很久，不能占着主线程
     let root_for_walk = root.clone();

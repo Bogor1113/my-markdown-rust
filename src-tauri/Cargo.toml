@@ -1,6 +1,6 @@
 [package]
 name = "mymdedit"
-version = "2.0.4"
+version = "2.0.5"
 description = "波哥自研的 Markdown 桌面编辑器"
 authors = ["冬月十三"]
 edition = "2021"
@@ -19,6 +19,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # 缺这俩时会退回到 devUrl(http://localhost:1420) 加载，打包后必然白屏/空白
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+# DevTools 只在 debug 构建通过 `tauri build -f devtools` 启用（见 build-debug.bat）。
+# release 不编译该 feature：否则打包后 F12 即可打开控制台、直接调用任意自定义
+# IPC 命令（read_file / write_file / delete_path ...）读写本机路径。
+devtools = ["tauri/devtools"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -28,7 +32,7 @@ tauri-build = { version = "2", features = [] }
 indexmap = { version = "1.9.3", features = ["std"] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "protocol-asset", "devtools", "custom-protocol"] }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset", "custom-protocol"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"

@@ -2,11 +2,14 @@ pub mod association;
 pub mod ci_match;
 pub mod directory;
 pub mod file;
+pub mod path_guard;
 pub mod pdf;
 pub mod pdf_outline;
 pub mod pdf_url;
 pub mod search;
 pub mod watcher;
+
+pub use path_guard::validate_path;
 
 use std::collections::HashSet;
 use std::fs::File;
